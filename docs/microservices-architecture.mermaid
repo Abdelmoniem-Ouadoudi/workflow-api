@@ -1,0 +1,41 @@
+flowchart LR
+    SPA["React SPA"]
+
+    subgraph EDGE["Edge"]
+        GW["API Gateway<br/>Spring Cloud Gateway"]
+    end
+
+    subgraph SVC["Services"]
+        AUTH["Auth Service<br/>Spring Security + JWT"]
+        CORE["Work Service<br/>projects · boards · sprints · issues"]
+        AI["Classification Service<br/>Spring AI + Groq client"]
+        NOTIF["Notification Service (optional)<br/>WebSocket / email"]
+    end
+
+    REG["Eureka<br/>service registry"]
+    MQ[("RabbitMQ")]
+    GROQ[["Groq API<br/>LLM + embeddings"]]
+    ADB[("Auth DB")]
+    CDB[("Core DB<br/>PostgreSQL")]
+    VDB[("Vector store<br/>pgvector")]
+
+    SPA --> GW
+    GW --> AUTH
+    GW --> CORE
+    GW -- "similarity search (sync)" --> AI
+    AUTH --> ADB
+    CORE --> CDB
+
+    CORE -- "publish issue.created" --> MQ
+    MQ -- "consume" --> AI
+    AI -- "classify (JSON mode)" --> GROQ
+    AI -- "embed + search" --> VDB
+    AI -- "publish issue.classified" --> MQ
+    MQ -- "consume result" --> CORE
+    MQ -- "consume" --> NOTIF
+    NOTIF -. "push events" .-> SPA
+
+    GW -.-> REG
+    AUTH -.-> REG
+    CORE -.-> REG
+    AI -.-> REG
