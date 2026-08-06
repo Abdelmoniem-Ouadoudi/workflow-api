@@ -1,4 +1,4 @@
-package ma.dev.workflow_api;
+package ma.dev.workflow;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;

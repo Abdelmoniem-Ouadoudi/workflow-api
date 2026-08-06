@@ -1,0 +1,15 @@
+services:
+  db:
+    image: postgres:16
+    container_name: workflow-db
+    environment:
+      POSTGRES_DB: workflow
+      POSTGRES_USER: workflow
+      POSTGRES_PASSWORD: workflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - workflow_pgdata:/var/lib/postgresql/data
+
+volumes:
+  workflow_pgdata:
