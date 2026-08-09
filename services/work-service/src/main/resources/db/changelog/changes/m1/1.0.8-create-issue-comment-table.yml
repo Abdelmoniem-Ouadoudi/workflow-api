@@ -1,0 +1,65 @@
+databaseChangeLog:
+  - changeSet:
+      id: 1.0.8
+      author: abdelmoniem
+      changes:
+        - createTable:
+            # "comment" is a DDL keyword, so the table is issue_comment.
+            tableName: issue_comment
+            columns:
+              - column:
+                  name: id
+                  type: bigint
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: content
+                  type: text
+                  constraints:
+                    nullable: false
+              - column:
+                  name: issue_id
+                  type: bigint
+                  constraints:
+                    nullable: false
+              - column:
+                  name: author_id
+                  type: bigint
+                  constraints:
+                    nullable: false
+              - column:
+                  name: created_at
+                  type: timestamp
+                  constraints:
+                    nullable: false
+              - column:
+                  name: updated_at
+                  type: timestamp
+                  constraints:
+                    nullable: false
+
+        # Composition: deleting the issue deletes its comments.
+        - addForeignKeyConstraint:
+            constraintName: fk_issue_comment_issue
+            baseTableName: issue_comment
+            baseColumnNames: issue_id
+            referencedTableName: issue
+            referencedColumnNames: id
+            onDelete: CASCADE
+
+        - addForeignKeyConstraint:
+            constraintName: fk_issue_comment_author
+            baseTableName: issue_comment
+            baseColumnNames: author_id
+            referencedTableName: app_user
+            referencedColumnNames: id
+            onDelete: RESTRICT
+
+        - createIndex:
+            indexName: idx_issue_comment_issue
+            tableName: issue_comment
+            columns:
+              - column:
+                  name: issue_id
