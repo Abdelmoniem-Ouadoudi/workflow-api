@@ -40,6 +40,7 @@ workflow-api/
 - `docs/PROJECT.md` — milestones. Work ONLY on the current one.
 - `docs/work-management-class-diagram-v2.mermaid` — the domain model. Follow it exactly.
 - `docs/microservices-architecture.mermaid` — target architecture.
+- `docs/DATA-MODEL.md` — the tables, their columns and every foreign key.
 
 ## Who writes code
 **You write the code. Do not stop to teach me.**
