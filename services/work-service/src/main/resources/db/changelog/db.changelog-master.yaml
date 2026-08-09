@@ -13,3 +13,5 @@ databaseChangeLog:
       file: db/changelog/changes/m1/1.0.7-create-issue-table.yml
   - include:
       file: db/changelog/changes/m1/1.0.8-create-issue-comment-table.yml
+  - include:
+      file: db/changelog/changes/m1/1.0.9-create-issue-attachment-table.yml

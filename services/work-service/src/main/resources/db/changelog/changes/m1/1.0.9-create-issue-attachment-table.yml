@@ -1,0 +1,57 @@
+databaseChangeLog:
+  - changeSet:
+      id: 1.0.9
+      author: abdelmoniem
+      changes:
+        - createTable:
+            tableName: issue_attachment
+            columns:
+              - column:
+                  name: id
+                  type: bigint
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: file_name
+                  type: varchar(255)
+                  constraints:
+                    nullable: false
+              - column:
+                  # Metadata only. The bytes live on disk or in object storage, never in the row.
+                  name: file_url
+                  type: varchar(500)
+                  constraints:
+                    nullable: false
+              - column:
+                  # bigint, not int: int caps at 2 GB.
+                  name: file_size
+                  type: bigint
+                  constraints:
+                    nullable: false
+              - column:
+                  name: issue_id
+                  type: bigint
+                  constraints:
+                    nullable: false
+              - column:
+                  name: uploaded_at
+                  type: timestamp
+                  constraints:
+                    nullable: false
+
+        - addForeignKeyConstraint:
+            constraintName: fk_issue_attachment_issue
+            baseTableName: issue_attachment
+            baseColumnNames: issue_id
+            referencedTableName: issue
+            referencedColumnNames: id
+            onDelete: CASCADE
+
+        - createIndex:
+            indexName: idx_issue_attachment_issue
+            tableName: issue_attachment
+            columns:
+              - column:
+                  name: issue_id
