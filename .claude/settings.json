@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s -X POST http://localhost:8080/projects -H \"Content-Type: application/json\" -d '{\"key\":\"WORK\",\"name\":\"Work Platform\",\"description\":\"PFA project\"}')",
+      "Bash(curl -s -X POST http://localhost:8080/projects -H \"Content-Type: application/json\" -d '{\"key\":\"WORK\",\"name\":\"Again\"}')",
+      "Bash(curl -s -X POST http://localhost:8080/projects -H \"Content-Type: application/json\" -d '{\"key\":\"bad-key\",\"name\":\"\"}')",
+      "Bash(curl -s http://localhost:8080/projects/9999)",
+      "Bash(curl -s http://localhost:8080/projects/abc)"
+    ]
+  }
+}

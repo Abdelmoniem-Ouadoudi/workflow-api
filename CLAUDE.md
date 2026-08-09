@@ -42,10 +42,10 @@ workflow-api/
 - `docs/microservices-architecture.mermaid` — target architecture.
 
 ## Who writes code
-**I write the code. You scope it and quiz me.**
-- Give me a plan in 3-5 lines. Wait for my OK before I start.
-- Do not write code for me. Give me the commands and the file content, I type them.
-- Ask before adding any dependency.
+**You write the code. Do not stop to teach me.**
+- Say what you will do in 3-5 lines, then build it. Do not wait for approval on small steps.
+- No quizzes. No comprehension questions. I will learn it later from the docs.
+- Ask before adding any dependency, and before anything that changes the stack.
 
 ## Code rules
 - Package per feature: `controller / dto / service / service.impl / repositories / models`
@@ -64,7 +64,17 @@ workflow-api/
 - Secrets from config, never in source.
 - Small commits, one thing each.
 
-## After every task (mandatory)
-1. Say what was built and why, in plain words
-2. List the 2-3 choices made and what was rejected
-3. Ask me 3 questions to check I understood. Wait for my answers.
+## Quality bar — clean, no gaps
+The backend must be finished at every step. Not a demo, not a sketch.
+- Every endpoint validates its input. Every error returns the same JSON shape.
+- No `TODO`, no commented-out code, no stub that returns null or an empty list.
+- No endpoint left unhandled: a bad id, a duplicate, a bad enum value all return a proper status.
+- Every entity has its migration, its constraints and its indexes in the same task.
+- Constraints live in the database, not only in Java.
+- If something must be deferred, write it in `docs/BACKLOG.md` with the reason. Never leave it silent.
+- Do not move to the next entity until the current slice is complete and compiles.
+
+## After every task
+1. Two or three lines: what was built, and the one decision that mattered.
+2. Append the decision and its reason to `docs/QUIZ.md` so I can revise later.
+3. Do not ask me questions. Move to the next task.
