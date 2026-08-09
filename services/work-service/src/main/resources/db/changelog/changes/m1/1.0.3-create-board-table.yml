@@ -1,0 +1,50 @@
+databaseChangeLog:
+  - changeSet:
+      id: 1.0.3
+      author: abdelmoniem
+      changes:
+        - createTable:
+            tableName: board
+            columns:
+              - column:
+                  name: id
+                  type: bigint
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: name
+                  type: varchar(150)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: type
+                  type: varchar(20)
+                  constraints:
+                    nullable: false
+              - column:
+                  # Composition in the class diagram: a board cannot exist without its project.
+                  name: project_id
+                  type: bigint
+                  constraints:
+                    nullable: false
+                    foreignKeyName: fk_board_project
+                    references: project(id)
+                    deleteCascade: true
+              - column:
+                  name: created_at
+                  type: timestamp
+                  constraints:
+                    nullable: false
+              - column:
+                  name: updated_at
+                  type: timestamp
+                  constraints:
+                    nullable: false
+        - createIndex:
+            indexName: idx_board_project
+            tableName: board
+            columns:
+              - column:
+                  name: project_id

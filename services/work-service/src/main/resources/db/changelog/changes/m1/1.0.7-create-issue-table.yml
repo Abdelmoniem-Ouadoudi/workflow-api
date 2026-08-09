@@ -1,0 +1,147 @@
+databaseChangeLog:
+  - changeSet:
+      id: 1.0.7
+      author: abdelmoniem
+      changes:
+        - createTable:
+            tableName: issue
+            columns:
+              - column:
+                  name: id
+                  type: bigint
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: issue_key
+                  type: varchar(20)
+                  constraints:
+                    nullable: false
+                    unique: true
+              - column:
+                  name: title
+                  type: varchar(255)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: description
+                  type: text
+              - column:
+                  name: type
+                  type: varchar(20)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: status
+                  type: varchar(20)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: priority
+                  type: varchar(20)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: project_id
+                  type: bigint
+                  constraints:
+                    nullable: false
+              - column:
+                  # NULL means the issue is not on any board yet.
+                  name: board_id
+                  type: bigint
+              - column:
+                  # NULL is the backlog. There is no Backlog entity.
+                  name: sprint_id
+                  type: bigint
+              - column:
+                  name: reporter_id
+                  type: bigint
+                  constraints:
+                    nullable: false
+              - column:
+                  name: assignee_id
+                  type: bigint
+              - column:
+                  name: due_date
+                  type: date
+              - column:
+                  # Optimistic locking. Two users dragging the same card is normal here.
+                  name: version
+                  type: bigint
+                  defaultValueNumeric: 0
+                  constraints:
+                    nullable: false
+              - column:
+                  name: created_at
+                  type: timestamp
+                  constraints:
+                    nullable: false
+              - column:
+                  name: updated_at
+                  type: timestamp
+                  constraints:
+                    nullable: false
+
+        # Composition in the diagram: deleting a project deletes its issues.
+        - addForeignKeyConstraint:
+            constraintName: fk_issue_project
+            baseTableName: issue
+            baseColumnNames: project_id
+            referencedTableName: project
+            referencedColumnNames: id
+            onDelete: CASCADE
+
+        # Aggregation: the issue survives its board and its sprint.
+        - addForeignKeyConstraint:
+            constraintName: fk_issue_board
+            baseTableName: issue
+            baseColumnNames: board_id
+            referencedTableName: board
+            referencedColumnNames: id
+            onDelete: SET NULL
+
+        - addForeignKeyConstraint:
+            constraintName: fk_issue_sprint
+            baseTableName: issue
+            baseColumnNames: sprint_id
+            referencedTableName: sprint
+            referencedColumnNames: id
+            onDelete: SET NULL
+
+        # A reporter is required, so the user row must not disappear: deactivation, not deletion.
+        - addForeignKeyConstraint:
+            constraintName: fk_issue_reporter
+            baseTableName: issue
+            baseColumnNames: reporter_id
+            referencedTableName: app_user
+            referencedColumnNames: id
+            onDelete: RESTRICT
+
+        - addForeignKeyConstraint:
+            constraintName: fk_issue_assignee
+            baseTableName: issue
+            baseColumnNames: assignee_id
+            referencedTableName: app_user
+            referencedColumnNames: id
+            onDelete: SET NULL
+
+        # The board view filters on exactly these.
+        - createIndex:
+            indexName: idx_issue_project_status
+            tableName: issue
+            columns:
+              - column:
+                  name: project_id
+              - column:
+                  name: status
+
+        - createIndex:
+            indexName: idx_issue_board_sprint
+            tableName: issue
+            columns:
+              - column:
+                  name: board_id
+              - column:
+                  name: sprint_id

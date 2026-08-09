@@ -1,0 +1,71 @@
+databaseChangeLog:
+  - changeSet:
+      id: 1.0.4
+      author: abdelmoniem
+      changes:
+        - createTable:
+            tableName: sprint
+            columns:
+              - column:
+                  name: id
+                  type: bigint
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: name
+                  type: varchar(150)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: goal
+                  type: text
+              - column:
+                  name: start_date
+                  type: date
+              - column:
+                  name: end_date
+                  type: date
+              - column:
+                  # Not in the class diagram. start() and complete() are meaningless without it.
+                  name: state
+                  type: varchar(20)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: board_id
+                  type: bigint
+                  constraints:
+                    nullable: false
+                    foreignKeyName: fk_sprint_board
+                    references: board(id)
+                    deleteCascade: true
+              - column:
+                  name: created_at
+                  type: timestamp
+                  constraints:
+                    nullable: false
+              - column:
+                  name: updated_at
+                  type: timestamp
+                  constraints:
+                    nullable: false
+        - createIndex:
+            indexName: idx_sprint_board
+            tableName: sprint
+            columns:
+              - column:
+                  name: board_id
+
+  - changeSet:
+      id: 1.0.5
+      author: abdelmoniem
+      comment: >
+        Only one sprint per board may be ACTIVE. A service check alone cannot guarantee this:
+        two concurrent requests both read "none active", both write, and the board ends up with
+        two active sprints and no error anywhere. A partial unique index is PostgreSQL specific.
+      changes:
+        - sql:
+            sql: CREATE UNIQUE INDEX uk_sprint_one_active_per_board ON sprint (board_id) WHERE state = 'ACTIVE'
+            rollback: DROP INDEX uk_sprint_one_active_per_board

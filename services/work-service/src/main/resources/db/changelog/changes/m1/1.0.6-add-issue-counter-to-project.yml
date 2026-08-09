@@ -1,0 +1,18 @@
+databaseChangeLog:
+  - changeSet:
+      id: 1.0.6
+      author: abdelmoniem
+      comment: >
+        Per-project counter used to build issue keys (WORK-1, WORK-2).
+        A new file, not an edit of 1.0.1: Liquibase stores the checksum of every changeSet
+        that has already run and refuses to start when it no longer matches.
+      changes:
+        - addColumn:
+            tableName: project
+            columns:
+              - column:
+                  name: issue_counter
+                  type: bigint
+                  defaultValueNumeric: 0
+                  constraints:
+                    nullable: false
