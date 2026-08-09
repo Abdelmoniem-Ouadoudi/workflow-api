@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: workflow
       POSTGRES_PASSWORD: workflow
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - workflow_pgdata:/var/lib/postgresql/data
 
