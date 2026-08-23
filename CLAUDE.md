@@ -41,6 +41,8 @@ workflow-api/
 - `docs/work-management-class-diagram-v2.mermaid` — the domain model. Follow it exactly.
 - `docs/microservices-architecture.mermaid` — target architecture.
 - `docs/DATA-MODEL.md` — the tables, their columns and every foreign key.
+- `docs/ARCHITECTURE-NOTES.md` — binding rules for M2/M3 (correlation id, DLQ, circuit breakers)
+  and the decisions to state out loud at the defence. Apply these when building each service.
 
 ## Who writes code
 **You write the code. Do not stop to teach me.**
