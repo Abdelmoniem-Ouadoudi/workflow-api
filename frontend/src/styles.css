@@ -1,0 +1,556 @@
+/* ---------------------------------------------------------------------------
+   Signalling, not sticky notes.
+
+   The workflow is a declared state machine: TO_DO -> IN_PROGRESS -> DONE, and
+   TO_DO -> DONE is refused. That is a railway interlocking, so the board borrows
+   its language: routes are clear or held, and the reason is stated on the panel.
+
+   Ground is engineering paper, ink is graphite, and the two signal colours are
+   spent only on route state and on CRITICAL. Everything else is greyscale.
+   --------------------------------------------------------------------------- */
+
+:root {
+  --ground: #e8ebe6;
+  --panel: #f7f8f6;
+  --ink: #1c211c;
+  --ink-soft: #6b736a;
+  --rule: #c9cfc5;
+  --clear: #2f6b4f;
+  --stop: #a32e22;
+
+  --sans: 'Archivo', ui-sans-serif, system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  --step: 8px;
+  --lift: 140ms cubic-bezier(0.2, 0, 0.2, 1);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* --- page ---------------------------------------------------------------- */
+
+.page {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: calc(var(--step) * 5) calc(var(--step) * 3) calc(var(--step) * 8);
+}
+
+.page__loading,
+.page__empty {
+  color: var(--ink-soft);
+  font-size: 14px;
+  padding: calc(var(--step) * 3) 0;
+}
+
+/* --- masthead (projects screen) ------------------------------------------ */
+
+.masthead {
+  margin-bottom: calc(var(--step) * 4);
+}
+
+.masthead__title {
+  font-size: clamp(32px, 6vw, 46px);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  margin: 0;
+}
+
+.masthead__sub {
+  margin: 4px 0 0;
+  color: var(--ink-soft);
+  font-size: 15px;
+  max-width: 48ch;
+}
+
+/* --- board panel header -------------------------------------------------- */
+
+.panel {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--step) * 2);
+  padding-bottom: calc(var(--step) * 2);
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: calc(var(--step) * 3);
+}
+
+.panel__back {
+  border: 1px solid var(--rule);
+  background: transparent;
+  color: var(--ink-soft);
+  font-family: var(--sans);
+  font-size: 12px;
+  padding: 5px 10px;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.panel__back:hover {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
+.panel__id {
+  display: flex;
+  align-items: baseline;
+  gap: calc(var(--step) * 1.5);
+  flex: 1;
+  min-width: 0;
+}
+
+.panel__key {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  background: var(--ink);
+  color: var(--ground);
+  padding: 3px 7px;
+  border-radius: 2px;
+}
+
+.panel__name {
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.panel__mode {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+/* --- compose forms ------------------------------------------------------- */
+
+.compose {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--step);
+  margin-bottom: calc(var(--step) * 3);
+  flex-wrap: wrap;
+}
+
+.compose__field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.compose__field--grow {
+  flex: 1;
+  min-width: 200px;
+}
+
+.compose__input,
+.compose__select {
+  font-family: var(--sans);
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  padding: 8px 10px;
+  width: 100%;
+}
+
+.compose__input::placeholder {
+  color: var(--ink-soft);
+}
+
+.compose__input:focus,
+.compose__select:focus {
+  border-color: var(--ink);
+  outline: none;
+}
+
+.compose__input--key {
+  font-family: var(--mono);
+  letter-spacing: 0.08em;
+  width: 96px;
+  text-transform: uppercase;
+}
+
+.compose__input--bad {
+  border-color: var(--stop);
+}
+
+.compose__select {
+  width: auto;
+  text-transform: capitalize;
+  cursor: pointer;
+}
+
+.compose__error {
+  color: var(--stop);
+  font-size: 12px;
+}
+
+.button {
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--ground);
+  background: var(--ink);
+  border: 1px solid var(--ink);
+  border-radius: 2px;
+  padding: 9px 16px;
+  cursor: pointer;
+}
+
+.button:hover {
+  background: #2b332b;
+}
+
+.button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* --- projects list ------------------------------------------------------- */
+
+.projects {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--rule);
+}
+
+.projects__row {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--step) * 2);
+  width: 100%;
+  padding: 14px 4px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--rule);
+  font-family: var(--sans);
+  font-size: 15px;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.projects__row:hover {
+  background: var(--panel);
+}
+
+.projects__key {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+  min-width: 72px;
+}
+
+.projects__name {
+  flex: 1;
+}
+
+.projects__go {
+  color: var(--ink-soft);
+}
+
+/* --- board --------------------------------------------------------------- */
+
+.board {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: calc(var(--step) * 2);
+  align-items: start;
+}
+
+.column {
+  border-top: 1px solid var(--rule);
+  padding-top: calc(var(--step) * 1.5);
+  transition: opacity var(--lift), background-color var(--lift);
+  border-radius: 2px;
+}
+
+.column__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--step);
+  padding: 0 2px;
+}
+
+.column__name {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.column__count {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+/* The signal bar. Grey at rest, and the route state during a drag. */
+.column__signal {
+  height: 2px;
+  background: var(--rule);
+  margin: calc(var(--step) * 1.5) 0 calc(var(--step) * 2);
+  transition: background-color var(--lift);
+}
+
+.column__cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--step);
+  min-height: 96px;
+}
+
+.column__empty {
+  margin: 0;
+  padding: 2px;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+/* --- route states -------------------------------------------------------- */
+
+.column--source .column__signal {
+  background: var(--ink-soft);
+}
+
+.column--source .column__cards {
+  opacity: 0.45;
+}
+
+.column--clear {
+  background: rgba(47, 107, 79, 0.05);
+}
+
+.column--clear .column__signal {
+  background: var(--clear);
+}
+
+.column--clear .column__name {
+  color: var(--clear);
+}
+
+.column__target {
+  border: 1px dashed var(--clear);
+  border-radius: 2px;
+  padding: 14px;
+  text-align: center;
+  color: var(--clear);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.column--held .column__signal {
+  background: var(--stop);
+}
+
+.column--held .column__name {
+  color: var(--stop);
+}
+
+.column--held .column__cards {
+  opacity: 0.25;
+}
+
+/* The signature: the board says why, while the card is still in the air. */
+.column__hold {
+  margin: 0 0 calc(var(--step) * 2);
+  padding: 10px 12px;
+  border-left: 2px solid var(--stop);
+  background: rgba(163, 46, 34, 0.06);
+  color: var(--stop);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+/* --- card ---------------------------------------------------------------- */
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  padding: 10px 12px 9px;
+  cursor: grab;
+  transition: transform var(--lift), box-shadow var(--lift), opacity var(--lift);
+}
+
+.card:hover {
+  border-color: var(--ink-soft);
+}
+
+.card--lifted {
+  opacity: 0.4;
+  transform: scale(0.985);
+}
+
+.card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--step);
+  margin-bottom: 6px;
+}
+
+.card__key {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+}
+
+.card__type {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  color: var(--ink-soft);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  padding: 2px 5px;
+}
+
+.card__title {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.35;
+  letter-spacing: -0.005em;
+}
+
+.card__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--step);
+}
+
+.card__who {
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+/* Priority as four steps, not four colours. Only CRITICAL earns the signal red. */
+.steps {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 11px;
+}
+
+.steps i {
+  display: block;
+  width: 3px;
+  border-radius: 1px;
+}
+
+.steps i:nth-child(1) { height: 4px; }
+.steps i:nth-child(2) { height: 6px; }
+.steps i:nth-child(3) { height: 8px; }
+.steps i:nth-child(4) { height: 11px; }
+
+.steps__on {
+  background: var(--ink);
+}
+
+.steps__off {
+  background: var(--rule);
+}
+
+.steps--critical .steps__on {
+  background: var(--stop);
+}
+
+/* --- notice -------------------------------------------------------------- */
+
+.notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  margin-bottom: calc(var(--step) * 2);
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+}
+
+.notice__mark {
+  width: 3px;
+  align-self: stretch;
+  border-radius: 2px;
+}
+
+.notice--stop .notice__mark { background: var(--stop); }
+.notice--note .notice__mark { background: var(--ink-soft); }
+
+.notice__text {
+  margin: 0;
+  flex: 1;
+  font-size: 13px;
+}
+
+.notice--stop .notice__text { color: var(--stop); }
+
+.notice__close {
+  background: transparent;
+  border: 0;
+  color: var(--ink-soft);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+/* --- responsive ---------------------------------------------------------- */
+
+@media (max-width: 860px) {
+  .board {
+    grid-template-columns: 1fr;
+  }
+
+  .compose__field--grow {
+    min-width: 140px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
