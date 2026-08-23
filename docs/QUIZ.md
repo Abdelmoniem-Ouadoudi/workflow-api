@@ -101,6 +101,70 @@ Two more reasons:
 
 ---
 
+# Things I asked, and the answer
+
+### What is H2 and what is it for?
+
+| | H2 | PostgreSQL |
+|---|---|---|
+| Install | none — just a jar | separate server (Docker) |
+| Where it runs | inside your app | its own process |
+| Where data lives | RAM by default | disk |
+| After restart | data gone | data stays |
+| Used for | tests, demos, learning | real apps |
+
+Its role in this project: none.
+
+### Which file is triggered first when a Spring Boot app starts?
+
+`WorkflowApiApplication.java` — a normal Java `main`. `mvnw spring-boot:run` just calls it.
+
+```java
+@SpringBootApplication
+public class WorkflowApiApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(WorkflowApiApplication.class, args);
+    }
+}
+```
+
+`@SpringBootApplication` is three annotations in one:
+
+- `@ComponentScan` — scan this package and below for `@RestController`, `@Service`, etc.
+- `@EnableAutoConfiguration` — read the `.imports` files inside the Spring jars
+- `@Configuration` — this class can itself define beans
+
+The class has 3 useful lines. The real work happens in the `.imports` files inside the jars.
+
+### Why the folder `services/work-service/`? Is that microservices?
+
+Yes — it is the folder shape for the services built later:
+
+```
+services/
+├── work-service/            ← M0
+├── auth-service/            ← M2
+├── gateway/                 ← M2
+├── discovery/               ← M2 (Eureka)
+└── classification-service/  ← M3
+```
+
+Each folder is a separate Spring Boot app: its own `pom.xml`, jar, port, container.
+
+Created at M0 and not M2 because moving it later costs more — today it was 5 files and one
+`git mv`; at M2 it would be 40+ files plus IDE config, Docker paths, and the frontend API URL.
+
+The folder does not make it a microservice yet. It is still one app and one database.
+
+### Two Liquibase tables — what is the difference?
+
+| Table | What it does |
+|---|---|
+| `databasechangelog` | History of every changeSet that ran, **with its md5 checksum**. Edit a changeSet that already ran → checksum no longer matches → app refuses to start. |
+| `databasechangeloglock` | One row, a boolean. Stops two app instances running migrations at the same time. If the app crashes mid-migration the lock stays `true` and the app will not start until that row is cleared. |
+
+---
+
 # M1 — Core domain
 
 ## Round 3 — the Project slice
@@ -224,7 +288,7 @@ silently drop every unassigned issue.
 
 There is no `Backlog` entity and there should not be one. An issue with `sprint_id IS NULL` on a
 board *is* the backlog. Completing a sprint sets `sprint_id = NULL` on every unfinished issue,
-in the same transaction that sets the sprint to `COMPLETED` — both or neither.
+in the same transaction that sets the sprint to `COMPLETED`.
 
 ### Why `ON DELETE` differs per foreign key
 
@@ -242,66 +306,75 @@ Comments and attachments live at `/issues/{issueId}/comments`, not `/comments`. 
 base class assumes one flat path with a single `{id}`. Two nested resources is not enough
 duplication to justify a second abstraction.
 
+### Why CORS needed a filter, not just the config bean
+
+A `CorsConfigurationSource` bean does nothing on its own in plain Spring MVC — only Spring
+Security's `http.cors()` looks one up, and there is no security chain until M2. A `CorsFilter`
+registered as a `FilterRegistrationBean` applies the rules today. The bean stays, because M2's
+`SecurityFilterChain` will consume that exact bean. The standalone filter registration has to be
+**removed** at M2 — two filters would both write `Access-Control-Allow-Origin` and the browser
+rejects the duplicate. Tracked in `docs/BACKLOG.md`.
+
+Also: the parameter had to be qualified by name (`@Qualifier("corsConfigurationSource")`).
+Spring MVC's own `mvcHandlerMappingIntrospector` bean also implements `CorsConfigurationSource`,
+so the type alone was ambiguous and the app refused to start.
+
+### Why work-service runs on 8081, not 8080
+
+A local Apache install already holds 8080 on this machine. Discovered when the app failed with
+"port already in use" while the actual cause was a different process, not a bug in the app.
+
+### Why the issue detail panel does not let you change status
+
+Only the board's drag changes status, using the transition map. If the panel also offered a
+status control, the two could disagree about what is allowed — the panel would need its own copy
+of the rule, or worse, no rule at all. It shows status as a read-only badge instead.
+
+### Why assigning someone in the panel updates the board's cached `version`, not just `assigneeId`
+
+`PUT /issues/{id}/assignee` saves the row, and `@Version` increments on every save — including
+this one. The board's local copy of the issue had a `version` field that assigning left stale.
+The next drag on that card would send the old version and get a false 409, exactly the same bug
+class as the `save` vs `saveAndFlush` one above. Fixed by reading `version` back from the assign
+response and updating it in board state alongside `assigneeId`. Verified with curl: assigning
+bumped `version` 3→4, a drag using the stale value 3 got 409, the same drag using 4 succeeded.
+
 ---
 
-# Things I asked, and the answer
+# M2 — Auth and the edge
 
-### What is H2 and what is it for?
+## Why auth-service gets its own database instead of sharing `app_user`
 
-| | H2 | PostgreSQL |
-|---|---|---|
-| Install | none — just a jar | separate server (Docker) |
-| Where it runs | inside your app | its own process |
-| Where data lives | RAM by default | disk |
-| After restart | data gone | data stays |
-| Used for | tests, demos, learning | real apps |
+`docs/microservices-architecture.mermaid` draws a separate Auth DB from the Core DB. Two real
+options existed: share one Postgres instance between work-service and auth-service, or split it
+as drawn.
 
-Its role in this project: none.
+Sharing is simpler but silently breaks the diagram that is the documented source of truth, and
+invites the exact question a jury would ask: "your diagram shows two databases, your code has
+one — why?"
 
-### Which file is triggered first when a Spring Boot app starts?
+Splitting is what got built. auth-service owns its own table: `id`, `username`, `password_hash`,
+`role`, `is_active`. It has nothing to do with work-service's `app_user` table beyond sharing a
+username. On registration, auth-service calls work-service's existing `POST /users` to create
+the matching profile row — no new work-service code, that endpoint was already built and tested.
 
-`WorkflowApiApplication.java` — a normal Java `main`. `mvnw spring-boot:run` just calls it.
+**The honest cost, stated rather than hidden:** if work-service is down when someone registers,
+registration fails outright. There is no retry and no queue yet. A saga or an async event
+(`user.registered`, the same shape as `issue.created` at M3) is the real fix, and RabbitMQ is not
+on the classpath until M3 — so this is deferred, not missed. If asked, the one-line answer is:
+"registration is synchronous today because the message broker isn't wired in until M3; it is the
+first candidate for becoming an event once it is."
 
-```java
-@SpringBootApplication
-public class WorkflowApiApplication {
-    public static void main(String[] args) {
-        SpringApplication.run(WorkflowApiApplication.class, args);
-    }
-}
-```
+## Why discovery-service was built first
 
-`@SpringBootApplication` is three annotations in one:
+auth-service and the gateway both register with Eureka on boot. Building them before the
+registry exists means their startup logs show connection-refused warnings until it does — noisy
+and confusing to debug. Discovery-service has no dependencies of its own, so it goes first.
 
-- `@ComponentScan` — scan this package and below for `@RestController`, `@Service`, etc.
-- `@EnableAutoConfiguration` — read the `.imports` files inside the Spring jars
-- `@Configuration` — this class can itself define beans
+## Why `eureka.client.register-with-eureka=false` and `fetch-registry=false` on discovery-service
 
-The class has 3 useful lines. The real work happens in the `.imports` files inside the jars.
-
-### Why the folder `services/work-service/`? Is that microservices?
-
-Yes — it is the folder shape for the services built later:
-
-```
-services/
-├── work-service/            ← M0
-├── auth-service/            ← M2
-├── gateway/                 ← M2
-├── discovery/               ← M2 (Eureka)
-└── classification-service/  ← M3
-```
-
-Each folder is a separate Spring Boot app: its own `pom.xml`, jar, port, container.
-
-Created at M0 and not M2 because moving it later costs more — today it was 5 files and one
-`git mv`; at M2 it would be 40+ files plus IDE config, Docker paths, and the frontend API URL.
-
-The folder does not make it a microservice yet. It is still one app and one database.
-
-### Two Liquibase tables — what is the difference?
-
-| Table | What it does |
-|---|---|
-| `databasechangelog` | History of every changeSet that ran, **with its md5 checksum**. Edit a changeSet that already ran → checksum no longer matches → app refuses to start. |
-| `databasechangeloglock` | One row, a boolean. Stops two app instances running migrations at the same time. If the app crashes mid-migration the lock stays `true` and the app will not start until that row is cleared. |
+Both flags describe what a **client** does: register itself, and pull down a copy of the
+registry. The registry server is neither — it does not need to appear in its own list, and it
+does not need to fetch what it already holds. Left at the defaults (`true`), a standalone Eureka
+server would try to register with and query itself, which works but adds pointless traffic and
+a confusing self-referential entry in the dashboard.

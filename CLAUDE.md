@@ -35,10 +35,14 @@ workflow-api/
 ├── frontend/              ← React + Vite, dev server on 5173
 ├── scripts/smoke-test.sh
 └── services/
-    └── work-service/      ← Maven commands run from HERE, not the root
+    ├── work-service/      ← Maven commands run from HERE, not the root
+    ├── discovery-service/ ← Eureka registry, from M2
+    ├── auth-service/      ← from M2
+    └── gateway/           ← from M2
 ```
 
-Ports: work-service **8081**, Postgres **5433**, Vite **5173**.
+Ports: work-service **8081**, discovery-service (Eureka) **8761**, auth-service **8082**,
+gateway **8090**, Postgres **5433**, Vite **5173**.
 8080 and 5432 are avoided because a local Apache and a local Postgres already use them.
 
 ## Source of truth
