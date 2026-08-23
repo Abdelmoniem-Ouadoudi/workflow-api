@@ -1,0 +1,34 @@
+databaseChangeLog:
+  - changeSet:
+      id: 1.1.1
+      author: abdelmoniem
+      comment: >
+        Every issue needs a reporter, so on an empty database no issue can be created at all.
+        This seeds one account so the app is usable straight after docker compose up.
+        No password column yet - authentication arrives at M2.
+      changes:
+        - insert:
+            tableName: app_user
+            columns:
+              - column:
+                  name: username
+                  value: admin
+              - column:
+                  name: email
+                  value: admin@workflow.local
+              - column:
+                  name: role
+                  value: ADMIN
+              - column:
+                  name: is_active
+                  valueBoolean: true
+              - column:
+                  name: created_at
+                  valueComputed: CURRENT_TIMESTAMP
+              - column:
+                  name: updated_at
+                  valueComputed: CURRENT_TIMESTAMP
+      rollback:
+        - delete:
+            tableName: app_user
+            where: username = 'admin'

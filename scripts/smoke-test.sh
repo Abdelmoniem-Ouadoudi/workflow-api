@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Exercises every endpoint of work-service and prints PASS/FAIL per case.
-BASE=http://localhost:8080
+BASE=http://localhost:8081
 pass=0; fail=0
 
 # check <name> <expected-status> <curl args...>
