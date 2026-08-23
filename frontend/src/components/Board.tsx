@@ -5,6 +5,7 @@ import { STATUSES } from '../api/types'
 import { canMove, holdReason } from '../api/workflow'
 import { Column } from './Column'
 import type { ColumnState } from './Column'
+import { IssueDetail } from './IssueDetail'
 import { NewIssueForm } from './NewIssueForm'
 import { Notice } from './Notice'
 import type { NoticeState } from './Notice'
@@ -26,6 +27,7 @@ export function Board({ project, onLeave }: Props) {
   const [lift, setLift] = useState<Lift | null>(null)
   const [notice, setNotice] = useState<NoticeState | null>(null)
   const [loading, setLoading] = useState(true)
+  const [openIssueId, setOpenIssueId] = useState<number | null>(null)
 
   const load = useCallback(async () => {
     const boards = await api.listBoards(project.id)
@@ -133,6 +135,30 @@ export function Board({ project, onLeave }: Props) {
     void move(issue.id, issue.status, STATUSES[index], issue.version)
   }
 
+  function applyAssignee(issueId: number, assigneeId: number | null, version: number) {
+    const assigneeUsername = assigneeId === null
+      ? null
+      : (users.find((user) => user.id === assigneeId)?.username ?? null)
+
+    setView((current) =>
+      current === null
+        ? current
+        : {
+            ...current,
+            columns: current.columns.map((column) => ({
+              ...column,
+              issues: column.issues.map((issue) =>
+                issue.id === issueId ? { ...issue, assigneeId, assigneeUsername, version } : issue,
+              ),
+            })),
+          },
+    )
+  }
+
+  const openIssue = openIssueId === null
+    ? null
+    : (view?.columns.flatMap((column) => column.issues).find((issue) => issue.id === openIssueId) ?? null)
+
   function columnState(status: Status): ColumnState {
     if (lift === null) return 'idle'
     if (lift.from === status) return 'source'
@@ -169,9 +195,10 @@ export function Board({ project, onLeave }: Props) {
       )}
 
       <div className={`board${lift ? ' board--lifting' : ''}`}>
-        {view?.columns.map((column) => (
+        {view?.columns.map((column, index) => (
           <Column
             key={column.status}
+            index={index}
             status={column.status}
             issues={column.issues}
             state={columnState(column.status)}
@@ -187,9 +214,20 @@ export function Board({ project, onLeave }: Props) {
               if (held) void move(held.id, held.from, column.status, held.version)
             }}
             onNudge={nudge}
+            onOpen={(issue) => setOpenIssueId(issue.id)}
           />
         ))}
       </div>
+
+      {openIssue && (
+        <IssueDetail
+          issue={openIssue}
+          users={users}
+          onClose={() => setOpenIssueId(null)}
+          onAssigneeChanged={(assigneeId, version) => applyAssignee(openIssue.id, assigneeId, version)}
+          onAssignFailed={(message) => setNotice({ tone: 'stop', message })}
+        />
+      )}
     </main>
   )
 }

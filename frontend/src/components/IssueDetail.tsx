@@ -1,0 +1,257 @@
+import { useEffect, useRef, useState } from 'react'
+import type { FormEvent } from 'react'
+import { ApiError, api } from '../api/client'
+import type { IssueComment, IssueSummary, Status, User } from '../api/types'
+import { STATUS_LABEL } from '../api/types'
+
+const timeFormatter = new Intl.DateTimeFormat(undefined, {
+  month: 'short',
+  day: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+})
+
+interface Props {
+  issue: IssueSummary
+  users: User[]
+  onClose: () => void
+  onAssigneeChanged: (assigneeId: number | null, version: number) => void
+  onAssignFailed: (message: string) => void
+}
+
+/**
+ * The manifest sheet for one issue. Status is not editable here — the board's drag is the
+ * only path that changes it, so this panel does not offer a second one that could disagree
+ * with the workflow map.
+ */
+export function IssueDetail({ issue, users, onClose, onAssigneeChanged, onAssignFailed }: Props) {
+  const [comments, setComments] = useState<IssueComment[] | null>(null)
+  const [draft, setDraft] = useState('')
+  const [authorId, setAuthorId] = useState<number | ''>(users[0]?.id ?? '')
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [editDraft, setEditDraft] = useState('')
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const confirmTimer = useRef<number | undefined>(undefined)
+
+  useEffect(() => {
+    let cancelled = false
+    setComments(null)
+    api
+      .listComments(issue.id)
+      .then((list) => {
+        if (!cancelled) setComments(list)
+      })
+      .catch((err) => {
+        if (!cancelled && err instanceof ApiError) setError(err.message)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [issue.id])
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  useEffect(() => () => window.clearTimeout(confirmTimer.current), [])
+
+  function authorName(id: number): string {
+    return users.find((user) => user.id === id)?.username ?? `user ${id}`
+  }
+
+  async function handleAssign(value: string) {
+    const userId = value === '' ? null : Number(value)
+    try {
+      // The save also bumps the row's version, so the board's cached copy must move too —
+      // otherwise the next drag on this card sends a stale version and gets a false 409.
+      const updated = await api.assignIssue(issue.id, userId)
+      onAssigneeChanged(updated.assigneeId, updated.version)
+    } catch (err) {
+      if (err instanceof ApiError) onAssignFailed(err.message)
+    }
+  }
+
+  async function handlePost(event: FormEvent) {
+    event.preventDefault()
+    if (draft.trim() === '' || authorId === '') return
+    try {
+      const created = await api.createComment(issue.id, draft, authorId)
+      setComments((current) => [...(current ?? []), created])
+      setDraft('')
+    } catch (err) {
+      if (err instanceof ApiError) setError(err.message)
+    }
+  }
+
+  function startEdit(comment: IssueComment) {
+    setEditingId(comment.id)
+    setEditDraft(comment.content)
+  }
+
+  async function saveEdit(comment: IssueComment) {
+    if (editDraft.trim() === '') return
+    try {
+      const updated = await api.updateComment(issue.id, comment.id, editDraft, comment.authorId)
+      setComments((current) =>
+        (current ?? []).map((existing) => (existing.id === comment.id ? updated : existing)),
+      )
+      setEditingId(null)
+    } catch (err) {
+      if (err instanceof ApiError) setError(err.message)
+    }
+  }
+
+  function requestDelete(id: number) {
+    if (confirmDeleteId === id) {
+      window.clearTimeout(confirmTimer.current)
+      void (async () => {
+        try {
+          await api.deleteComment(issue.id, id)
+          setComments((current) => (current ?? []).filter((comment) => comment.id !== id))
+        } catch (err) {
+          if (err instanceof ApiError) setError(err.message)
+        } finally {
+          setConfirmDeleteId(null)
+        }
+      })()
+      return
+    }
+    setConfirmDeleteId(id)
+    window.clearTimeout(confirmTimer.current)
+    confirmTimer.current = window.setTimeout(() => setConfirmDeleteId(null), 3000)
+  }
+
+  return (
+    <div className="drawer">
+      <div className="drawer__backdrop" onClick={onClose} />
+      <aside className="drawer__panel" role="dialog" aria-label={`${issue.issueKey} detail`}>
+        <div className="drawer__head">
+          <span className="drawer__key">{issue.issueKey}</span>
+          <button type="button" className="drawer__close" onClick={onClose} aria-label="Close">
+            ×
+          </button>
+        </div>
+
+        <h2 className="drawer__title">{issue.title}</h2>
+
+        <div className="drawer__badges">
+          <span className="drawer__badge">{issue.type.toLowerCase()}</span>
+          <span className="drawer__badge">{STATUS_LABEL[issue.status as Status]}</span>
+          <span className={`drawer__badge${issue.priority === 'CRITICAL' ? ' drawer__badge--stop' : ''}`}>
+            {issue.priority.toLowerCase()}
+          </span>
+        </div>
+
+        {error && <p className="drawer__error">{error}</p>}
+
+        <div className="drawer__field">
+          <label className="drawer__label" htmlFor="assignee">
+            Assigned to
+          </label>
+          <select
+            id="assignee"
+            className="compose__select"
+            value={issue.assigneeId ?? ''}
+            onChange={(event) => void handleAssign(event.target.value)}
+          >
+            <option value="">Unassigned</option>
+            {users.map((user) => (
+              <option key={user.id} value={user.id}>
+                {user.username}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="drawer__section">
+          <h3 className="drawer__label">Discussion</h3>
+
+          {comments === null && <p className="drawer__loading">Loading…</p>}
+
+          {comments !== null && comments.length === 0 && (
+            <p className="drawer__loading">No comments yet. Add the first one.</p>
+          )}
+
+          <ul className="comments">
+            {comments?.map((comment) => (
+              <li className="comment" key={comment.id}>
+                <div className="comment__head">
+                  <span className="comment__author">{authorName(comment.authorId)}</span>
+                  <span className="comment__time">{timeFormatter.format(new Date(comment.createdAt))}</span>
+                </div>
+
+                {editingId === comment.id ? (
+                  <div className="comment__edit">
+                    <textarea
+                      className="drawer__textarea"
+                      value={editDraft}
+                      onChange={(event) => setEditDraft(event.target.value)}
+                      rows={3}
+                    />
+                    <div className="comment__edit-actions">
+                      <button type="button" className="link" onClick={() => setEditingId(null)}>
+                        Cancel
+                      </button>
+                      <button type="button" className="link" onClick={() => void saveEdit(comment)}>
+                        Save
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <p className="comment__body">{comment.content}</p>
+                    <div className="comment__actions">
+                      <button type="button" className="link" onClick={() => startEdit(comment)}>
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        className={`link${confirmDeleteId === comment.id ? ' link--stop' : ''}`}
+                        onClick={() => requestDelete(comment.id)}
+                      >
+                        {confirmDeleteId === comment.id ? 'Remove — sure?' : 'Remove'}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </li>
+            ))}
+          </ul>
+
+          <form className="comment-compose" onSubmit={handlePost}>
+            <textarea
+              className="drawer__textarea"
+              placeholder="Add a comment…"
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              rows={2}
+              aria-label="New comment"
+            />
+            <div className="comment-compose__row">
+              <select
+                className="compose__select"
+                value={authorId}
+                onChange={(event) => setAuthorId(Number(event.target.value))}
+                aria-label="Commenting as"
+              >
+                {users.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.username}
+                  </option>
+                ))}
+              </select>
+              <button type="submit" className="button">
+                Comment
+              </button>
+            </div>
+          </form>
+        </div>
+      </aside>
+    </div>
+  )
+}

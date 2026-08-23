@@ -72,6 +72,16 @@ body {
   margin-bottom: calc(var(--step) * 4);
 }
 
+.masthead__eyebrow {
+  margin: 0 0 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
 .masthead__title {
   font-size: clamp(32px, 6vw, 46px);
   font-weight: 700;
@@ -84,6 +94,19 @@ body {
   color: var(--ink-soft);
   font-size: 15px;
   max-width: 48ch;
+}
+
+/* A measured line, not a divider. The one atmospheric touch this screen gets. */
+.masthead__rail {
+  height: 1px;
+  margin-top: calc(var(--step) * 3);
+  background-image: repeating-linear-gradient(
+    90deg,
+    var(--rule) 0,
+    var(--rule) 1px,
+    transparent 1px,
+    transparent 16px
+  );
 }
 
 /* --- board panel header -------------------------------------------------- */
@@ -278,6 +301,12 @@ body {
   flex: 1;
 }
 
+.projects__date {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
 .projects__go {
   color: var(--ink-soft);
 }
@@ -327,7 +356,35 @@ body {
   height: 2px;
   background: var(--rule);
   margin: calc(var(--step) * 1.5) 0 calc(var(--step) * 2);
+  transform-origin: left;
   transition: background-color var(--lift);
+}
+
+/* A route does not just recolour, it throws — the bar extends like a signal arm. */
+@keyframes signal-throw {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.column--clear .column__signal,
+.column--held .column__signal {
+  animation: signal-throw 200ms cubic-bezier(0.2, 0, 0.2, 1) both;
+}
+
+@keyframes hold-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(163, 46, 34, 0.32);
+  }
+  70% {
+    box-shadow: 0 0 0 7px rgba(163, 46, 34, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(163, 46, 34, 0);
+  }
 }
 
 .column__cards {
@@ -397,6 +454,7 @@ body {
   color: var(--stop);
   font-size: 13px;
   line-height: 1.35;
+  animation: hold-pulse 550ms ease-out;
 }
 
 /* --- card ---------------------------------------------------------------- */
@@ -536,6 +594,285 @@ body {
   padding: 0 4px;
 }
 
+/* --- entrance -------------------------------------------------------------
+   One sequence, played once on load. Columns settle first, cards inside them
+   follow — like sections of track lighting up in order, not a list fading in.
+   -------------------------------------------------------------------------- */
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.masthead,
+.panel,
+.compose {
+  animation: rise-in 360ms cubic-bezier(0.2, 0, 0.2, 1) both;
+}
+
+.board .column {
+  animation: rise-in 360ms cubic-bezier(0.2, 0, 0.2, 1) both;
+  animation-delay: calc(var(--i, 0) * 70ms);
+}
+
+.column__cards .card {
+  animation: rise-in 320ms cubic-bezier(0.2, 0, 0.2, 1) both;
+  /* Capped so a full column never makes the last card wait a full second to appear. */
+  animation-delay: calc(220ms + min(var(--i, 0), 7) * 35ms);
+}
+
+.projects__row {
+  animation: rise-in 320ms cubic-bezier(0.2, 0, 0.2, 1) both;
+  animation-delay: calc(min(var(--i, 0), 8) * 30ms);
+}
+
+/* --- issue detail: a manifest sheet pulled out from the board ------------- */
+
+.drawer {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  justify-content: flex-end;
+}
+
+@keyframes backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.drawer__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(28, 33, 28, 0.28);
+  animation: backdrop-in 200ms ease-out both;
+}
+
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.drawer__panel {
+  position: relative;
+  width: min(440px, 100vw);
+  height: 100%;
+  overflow-y: auto;
+  background: var(--panel);
+  border-left: 1px solid var(--rule);
+  padding: calc(var(--step) * 3) calc(var(--step) * 3) calc(var(--step) * 6);
+  animation: panel-in 240ms cubic-bezier(0.2, 0, 0.2, 1) both;
+}
+
+.drawer__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: calc(var(--step) * 2);
+}
+
+.drawer__key {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  background: var(--ink);
+  color: var(--ground);
+  padding: 3px 7px;
+  border-radius: 2px;
+}
+
+.drawer__close {
+  background: transparent;
+  border: 0;
+  color: var(--ink-soft);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.drawer__close:hover {
+  color: var(--ink);
+}
+
+.drawer__title {
+  margin: 0 0 calc(var(--step) * 1.5);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+
+.drawer__badges {
+  display: flex;
+  gap: 6px;
+  margin-bottom: calc(var(--step) * 3);
+  flex-wrap: wrap;
+}
+
+.drawer__badge {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  padding: 3px 7px;
+}
+
+.drawer__badge--stop {
+  color: var(--stop);
+  border-color: var(--stop);
+}
+
+.drawer__error {
+  color: var(--stop);
+  font-size: 13px;
+  margin: 0 0 var(--step);
+}
+
+.drawer__field {
+  margin-bottom: calc(var(--step) * 3);
+}
+
+.drawer__label {
+  display: block;
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.drawer__section {
+  padding-top: calc(var(--step) * 2);
+  border-top: 1px solid var(--rule);
+}
+
+.drawer__loading {
+  color: var(--ink-soft);
+  font-size: 13px;
+  margin: 0 0 var(--step);
+}
+
+.drawer__textarea {
+  width: 100%;
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--ground);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  padding: 8px 10px;
+  resize: vertical;
+}
+
+.drawer__textarea:focus {
+  border-color: var(--ink);
+  outline: none;
+}
+
+/* --- comments: a logbook, timestamped entries ----------------------------- */
+
+.comments {
+  list-style: none;
+  margin: 0 0 calc(var(--step) * 2);
+  padding: 0;
+}
+
+.comment {
+  padding: calc(var(--step) * 1.5) 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.comment__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--step);
+  margin-bottom: 4px;
+}
+
+.comment__author {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.comment__time {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.comment__body {
+  margin: 0 0 6px;
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.comment__actions,
+.comment__edit-actions {
+  display: flex;
+  gap: calc(var(--step) * 1.5);
+}
+
+.link {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-family: var(--sans);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.link:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
+
+.link--stop {
+  color: var(--stop);
+}
+
+.comment__edit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.comment-compose {
+  display: flex;
+  flex-direction: column;
+  gap: var(--step);
+}
+
+.comment-compose__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--step);
+}
+
 /* --- responsive ---------------------------------------------------------- */
 
 @media (max-width: 860px) {
@@ -545,6 +882,10 @@ body {
 
   .compose__field--grow {
     min-width: 140px;
+  }
+
+  .drawer__panel {
+    width: 100vw;
   }
 }
 

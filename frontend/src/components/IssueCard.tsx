@@ -1,18 +1,20 @@
-import type { KeyboardEvent } from 'react'
+import type { CSSProperties, KeyboardEvent } from 'react'
 import type { IssueSummary, Priority } from '../api/types'
 
 /** Matches the rank declared on the Priority enum in the backend. */
 const PRIORITY_RANK: Record<Priority, number> = { LOW: 1, MEDIUM: 2, HIGH: 3, CRITICAL: 4 }
 
 interface Props {
+  index: number
   issue: IssueSummary
   lifted: boolean
   onLift: () => void
   onDrop: () => void
   onNudge: (direction: -1 | 1) => void
+  onOpen: () => void
 }
 
-export function IssueCard({ issue, lifted, onLift, onDrop, onNudge }: Props) {
+export function IssueCard({ index, issue, lifted, onLift, onDrop, onNudge, onOpen }: Props) {
   const rank = PRIORITY_RANK[issue.priority]
 
   function handleKeyDown(event: KeyboardEvent<HTMLElement>) {
@@ -23,18 +25,23 @@ export function IssueCard({ issue, lifted, onLift, onDrop, onNudge }: Props) {
     } else if (event.key === 'ArrowLeft') {
       event.preventDefault()
       onNudge(-1)
+    } else if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      onOpen()
     }
   }
 
   return (
     <article
       className={`card${lifted ? ' card--lifted' : ''}`}
+      style={{ '--i': index } as CSSProperties}
       draggable
       tabIndex={0}
       onDragStart={onLift}
       onDragEnd={onDrop}
+      onClick={onOpen}
       onKeyDown={handleKeyDown}
-      aria-label={`${issue.issueKey}, ${issue.title}, priority ${issue.priority.toLowerCase()}`}
+      aria-label={`${issue.issueKey}, ${issue.title}, priority ${issue.priority.toLowerCase()}. Press Enter to open.`}
     >
       <div className="card__head">
         <span className="card__key">{issue.issueKey}</span>

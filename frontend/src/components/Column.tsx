@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react'
 import type { IssueSummary, Status } from '../api/types'
 import { STATUS_LABEL } from '../api/types'
 import { IssueCard } from './IssueCard'
@@ -17,6 +18,7 @@ const EMPTY_TEXT: Record<Status, string> = {
 }
 
 interface Props {
+  index: number
   status: Status
   issues: IssueSummary[]
   state: ColumnState
@@ -26,9 +28,11 @@ interface Props {
   onLiftEnd: () => void
   onDropHere: () => void
   onNudge: (issue: IssueSummary, direction: -1 | 1) => void
+  onOpen: (issue: IssueSummary) => void
 }
 
 export function Column({
+  index,
   status,
   issues,
   state,
@@ -38,10 +42,12 @@ export function Column({
   onLiftEnd,
   onDropHere,
   onNudge,
+  onOpen,
 }: Props) {
   return (
     <section
       className={`column column--${state}`}
+      style={{ '--i': index } as CSSProperties}
       onDragOver={(event) => {
         // Without preventDefault the browser never fires a drop event on this element.
         if (state === 'clear' || state === 'source') event.preventDefault()
@@ -69,14 +75,16 @@ export function Column({
           <p className="column__empty">{EMPTY_TEXT[status]}</p>
         )}
 
-        {issues.map((issue) => (
+        {issues.map((issue, cardIndex) => (
           <IssueCard
             key={issue.id}
+            index={cardIndex}
             issue={issue}
             lifted={issue.id === liftedId}
             onLift={() => onLift(issue)}
             onDrop={onLiftEnd}
             onNudge={(direction) => onNudge(issue, direction)}
+            onOpen={() => onOpen(issue)}
           />
         ))}
 

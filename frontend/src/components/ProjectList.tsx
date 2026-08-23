@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { FormEvent } from 'react'
+import type { CSSProperties, FormEvent } from 'react'
 import { ApiError, api } from '../api/client'
 import type { Project } from '../api/types'
 import { Notice } from './Notice'
@@ -7,6 +7,12 @@ import type { NoticeState } from './Notice'
 
 interface Props {
   onOpen: (project: Project) => void
+}
+
+const dateFormatter = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' })
+
+function formatShortDate(iso: string): string {
+  return dateFormatter.format(new Date(iso))
 }
 
 export function ProjectList({ onOpen }: Props) {
@@ -55,8 +61,14 @@ export function ProjectList({ onOpen }: Props) {
       <Notice notice={notice} onDismiss={() => setNotice(null)} />
 
       <header className="masthead">
+        {projects.length > 0 && (
+          <p className="masthead__eyebrow">
+            {projects.length} {projects.length === 1 ? 'project' : 'projects'} tracked
+          </p>
+        )}
         <h1 className="masthead__title">Workflow</h1>
         <p className="masthead__sub">Track work through three states. Nothing skips a step.</p>
+        <div className="masthead__rail" aria-hidden="true" />
       </header>
 
       <form className="compose compose--project" onSubmit={handleSubmit}>
@@ -94,11 +106,17 @@ export function ProjectList({ onOpen }: Props) {
       )}
 
       <ul className="projects">
-        {projects.map((project) => (
+        {projects.map((project, index) => (
           <li key={project.id}>
-            <button type="button" className="projects__row" onClick={() => onOpen(project)}>
+            <button
+              type="button"
+              className="projects__row"
+              style={{ '--i': index } as CSSProperties}
+              onClick={() => onOpen(project)}
+            >
               <span className="projects__key">{project.key}</span>
               <span className="projects__name">{project.name}</span>
+              <span className="projects__date">{formatShortDate(project.createdAt)}</span>
               <span className="projects__go" aria-hidden="true">
                 →
               </span>

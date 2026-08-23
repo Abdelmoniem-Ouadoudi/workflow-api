@@ -81,6 +81,22 @@ export interface Issue {
   version: number
 }
 
+/** What PUT /issues/{id}/assignee returns — the full IssueDTO, we only read these three. */
+export interface IssueAssignment {
+  id: number
+  assigneeId: number | null
+  version: number
+}
+
+export interface IssueComment {
+  id: number
+  content: string
+  issueId: number
+  authorId: number
+  createdAt: string
+  updatedAt: string
+}
+
 export interface FieldError {
   field: string
   message: string

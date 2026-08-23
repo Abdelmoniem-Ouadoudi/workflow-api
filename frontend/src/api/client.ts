@@ -4,6 +4,8 @@ import type {
   BoardView,
   FieldError,
   Issue,
+  IssueAssignment,
+  IssueComment,
   IssueType,
   Priority,
   Project,
@@ -114,4 +116,29 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify({ status, version }),
     }),
+
+  /** Pass null to unassign — the query param is simply omitted. */
+  assignIssue: (issueId: number, userId: number | null) =>
+    request<IssueAssignment>(
+      `/issues/${issueId}/assignee${userId === null ? '' : `?userId=${userId}`}`,
+      { method: 'PUT' },
+    ),
+
+  listComments: (issueId: number) => request<IssueComment[]>(`/issues/${issueId}/comments`),
+
+  createComment: (issueId: number, content: string, authorId: number) =>
+    request<IssueComment>(`/issues/${issueId}/comments`, {
+      method: 'POST',
+      body: JSON.stringify({ content, authorId }),
+    }),
+
+  /** The backend keeps the original author regardless of what is sent here — only content changes. */
+  updateComment: (issueId: number, commentId: number, content: string, authorId: number) =>
+    request<IssueComment>(`/issues/${issueId}/comments/${commentId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ content, authorId }),
+    }),
+
+  deleteComment: (issueId: number, commentId: number) =>
+    request<void>(`/issues/${issueId}/comments/${commentId}`, { method: 'DELETE' }),
 }
