@@ -5,7 +5,12 @@
       "Bash(curl -s -X POST http://localhost:8080/projects -H \"Content-Type: application/json\" -d '{\"key\":\"WORK\",\"name\":\"Again\"}')",
       "Bash(curl -s -X POST http://localhost:8080/projects -H \"Content-Type: application/json\" -d '{\"key\":\"bad-key\",\"name\":\"\"}')",
       "Bash(curl -s http://localhost:8080/projects/9999)",
-      "Bash(curl -s http://localhost:8080/projects/abc)"
+      "Bash(curl -s http://localhost:8080/projects/abc)",
+      "Bash(JAVA_HOME=\"/c/Program Files/Java/jdk-21.0.11\" ./mvnw.cmd -q compile)",
+      "Bash(JAVA_HOME=\"/c/Program Files/Java/jdk-21.0.11\" cmd //c mvnw.cmd -q compile)",
+      "Bash(echo \"EXIT=$?\")",
+      "PowerShell(Set-Location \"c:\\\\Users\\\\a.ouadoudi\\\\Desktop\\\\workflow-api\\\\services\\\\work-service\"; $env:JAVA_HOME = \"C:\\\\Program Files\\\\Java\\\\jdk-21.0.11\"; .\\\\mvnw.cmd -q compile)",
+      "Bash(npm install *)"
     ]
   }
 }

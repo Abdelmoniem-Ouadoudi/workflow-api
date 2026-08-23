@@ -32,9 +32,14 @@ workflow-api/
 ├── docker-compose.yml
 ├── CLAUDE.md
 ├── docs/
+├── frontend/              ← React + Vite, dev server on 5173
+├── scripts/smoke-test.sh
 └── services/
     └── work-service/      ← Maven commands run from HERE, not the root
 ```
+
+Ports: work-service **8081**, Postgres **5433**, Vite **5173**.
+8080 and 5432 are avoided because a local Apache and a local Postgres already use them.
 
 ## Source of truth
 - `docs/PROJECT.md` — milestones. Work ONLY on the current one.
