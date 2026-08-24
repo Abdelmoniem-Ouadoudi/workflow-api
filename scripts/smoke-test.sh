@@ -194,6 +194,32 @@ check "delete project" 204 -X DELETE $BASE/projects/$PID
 check "project gone -> 404" 404 $BASE/projects/$PID
 check "cascade: board gone -> 404" 404 $BASE/boards/$BID
 
+echo "########## CORS, AS A BROWSER WOULD SEE IT ##########"
+# curl does not enforce CORS, so every case above passed while the app was unusable in a browser:
+# work-service also set Access-Control-Allow-Origin, the gateway forwarded it, and the browser
+# refused the duplicate. These count headers instead of trusting the status code.
+cors_header_count() {
+  local name="$1"; local path="$2"; local want="$3"; shift 3
+  local n
+  n=$(curl -s -o /dev/null -D - "$@" -H "Origin: http://localhost:5173" "$path" \
+      | grep -ci '^Access-Control-Allow-Origin:')
+  if [ "$n" = "$want" ]; then
+    printf 'PASS  --   %s\n' "$name"; pass=$((pass+1))
+  else
+    printf 'FAIL  got %s want %s  %s\n' "$n" "$want" "$name"; fail=$((fail+1))
+  fi
+}
+
+AUTH_HEADER="Authorization: Bearer $TOKEN"
+cors_header_count "GET /projects sends one Allow-Origin, not two" "$BASE/projects" 1 -H "$AUTH_HEADER"
+cors_header_count "GET /issues sends one Allow-Origin" "$BASE/issues" 1 -H "$AUTH_HEADER"
+cors_header_count "POST /auth/login sends one Allow-Origin" "$BASE/auth/login" 1 \
+  -X POST -H "$J" -d "{\"username\":\"$A\",\"password\":\"password123\"}"
+cors_header_count "preflight sends one Allow-Origin" "$BASE/projects" 1 \
+  -X OPTIONS -H "Access-Control-Request-Method: GET" -H "Access-Control-Request-Headers: authorization"
+# A 401 is still a response the browser has to read, so it needs the header too.
+cors_header_count "a 401 is still readable by the browser" "$BASE/projects" 1
+
 echo "########## THE EDGE ITSELF ##########"
 # A path no route matches must still answer in the one envelope, not Spring's default error body.
 check "unrouted path -> 404 in the ApiError shape" 404 $BASE/nope

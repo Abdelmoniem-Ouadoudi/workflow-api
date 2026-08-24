@@ -7,7 +7,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
@@ -87,12 +86,20 @@ public class SecurityConfig {
                                            JwtAuthenticationConverter jwtAuthenticationConverter,
                                            ApiErrorWriter apiErrorWriter) throws Exception {
         http
-                // Spring Security consumes the CorsConfigurationSource bean in CorsConfig. That
-                // bean existed since M1 but did nothing, because plain Spring MVC ignores it -
-                // which is why a standalone CorsFilter was registered then, and removed now.
-                // Leaving both would write Access-Control-Allow-Origin twice and the browser
-                // rejects a duplicated header.
-                .cors(Customizer.withDefaults())
+                // No CORS configuration here at all, and that is the fix for a real bug.
+                //
+                // M1 needed it: the browser called this service directly on 8081. M2 put the
+                // gateway in front, and the gateway forwards the downstream response headers
+                // through - so a browser calling /projects received Access-Control-Allow-Origin
+                // twice, once from the gateway and once from here. A duplicated
+                // Access-Control-Allow-Origin is rejected outright, and the fetch fails as if the
+                // server were unreachable. curl does not enforce CORS, so the whole smoke suite
+                // passed while the app was broken in the browser.
+                //
+                // CORS is a browser concern, and the browser only ever talks to the gateway.
+                // Swagger UI on 8081 needs nothing here: it is served from this same origin, so
+                // its calls are not cross-origin.
+                //
                 // No cookies and no session: CSRF defends a credential the browser attaches on
                 // its own, and a bearer token is attached by our code. Nothing to defend.
                 .csrf(csrf -> csrf.disable())

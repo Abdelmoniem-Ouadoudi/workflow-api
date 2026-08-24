@@ -32,11 +32,18 @@ which is how the id reaches the services rather than only the response. auth-ser
 on its outbound call to work-service through a `RestClient` interceptor.
 Logging pattern: `%5p [${spring.application.name},%X{corrId:-no-corr-id}]`.
 
-One thing it cost, worth saying because it is the same mistake twice: at first every service also
-set the header on its *response*, so a call through the gateway came back with
+One thing it cost, worth saying because it is the same mistake three times: at first every service
+also set the header on its *response*, so a call through the gateway came back with
 `X-Correlation-Id` twice. A service now stamps the response only when it generated the id itself —
-that is, when the call did not come through the gateway. Duplicated headers are exactly what the
-temporary `CorsFilter` had to be removed for.
+that is, when the call did not come through the gateway.
+
+The other two were the M1 `CorsFilter`, and then `Access-Control-Allow-Origin` arriving twice
+because work-service still configured CORS after the gateway existed — which broke every request
+in the browser while curl saw a clean 200.
+
+**The general rule:** a gateway merges two sets of response headers, so any header both ends set
+is a duplicate waiting to happen. Decide which end owns each one. CORS and the correlation id are
+the gateway's.
 
 **Why:** a request crosses Gateway → work-service → RabbitMQ → classification-service → back.
 Without one id tying those logs together, "why was this classification slow" is unanswerable.

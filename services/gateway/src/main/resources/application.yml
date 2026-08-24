@@ -19,6 +19,11 @@ spring:
                   args:
                     id: authServiceCircuitBreaker
                     fallbackPath: /fallback/auth-service
+                # Belt and braces, explained on the work-service route below.
+                - name: DedupeResponseHeader
+                  args:
+                    name: Access-Control-Allow-Origin Access-Control-Allow-Credentials
+                    strategy: RETAIN_FIRST
 
             # One route for the five groups work-service owns. No path rewriting: work-service
             # already serves /projects at its root, so the URL the browser sends is the URL the
@@ -37,6 +42,19 @@ spring:
                   args:
                     id: workServiceCircuitBreaker
                     fallbackPath: /fallback/work-service
+                # The gateway adds its own CORS headers, and it also forwards whatever the
+                # service sent back. When work-service still had a CORS config of its own, a
+                # browser received Access-Control-Allow-Origin twice and refused the response -
+                # every call failed as "cannot reach the server" while curl saw a clean 200.
+                #
+                # The cause is fixed at the source: work-service no longer does CORS at all.
+                # This stays because the gateway owns the browser contract and should not be
+                # breakable by what a service downstream decides to put in a header.
+                # RETAIN_FIRST keeps the gateway's value, which is the authoritative one.
+                - name: DedupeResponseHeader
+                  args:
+                    name: Access-Control-Allow-Origin Access-Control-Allow-Credentials
+                    strategy: RETAIN_FIRST
 
 server:
   port: 8090

@@ -528,3 +528,45 @@ Implementing that interface is what switches off Boot's own `BasicErrorControlle
 `@ConditionalOnMissingBean` on it â€” without it, both map `/error` and the context refuses to start
 on an ambiguous mapping.
 
+
+## The bug the whole test suite missed: two `Access-Control-Allow-Origin` headers
+
+Login worked. Everything after it failed with "cannot reach the server", and the 102-case smoke
+suite was green the entire time.
+
+What happened: the gateway adds CORS headers, and it also forwards the response headers the
+service sent back. work-service still had the CORS config it needed at M1, when the browser called
+it directly on 8081. So a browser calling `/projects` received:
+
+```
+Access-Control-Allow-Origin: http://localhost:5173
+Access-Control-Allow-Origin: http://localhost:5173
+```
+
+The spec allows exactly one. A browser refuses the response outright, and `fetch` rejects with a
+network error â€” indistinguishable in JavaScript from the server being down, which is why the app
+reported the gateway as unreachable while the gateway was answering 200.
+
+`/auth/login` worked because auth-service has no CORS config, so only the gateway set the header.
+That is why sign-in succeeded and every request after it failed.
+
+**Why no test caught it:** curl does not enforce CORS. It read a clean 200 with a correct body and
+counted a pass. The suite was testing the API and the browser was testing something else.
+
+**The fix, in three parts:**
+1. work-service no longer does CORS at all. CORS is a browser concern and the browser only talks to
+   the gateway. Swagger UI on 8081 needs nothing, because it is served from that same origin and
+   its calls are not cross-origin â€” which was the faulty reason the config had been kept.
+2. The gateway carries `DedupeResponseHeader ... RETAIN_FIRST` on both routes. The cause is fixed
+   at the source; this exists because the gateway owns the browser contract and should not be
+   breakable by what a downstream service puts in a header.
+3. `smoke-test.sh` now **counts** `Access-Control-Allow-Origin` headers rather than trusting the
+   status code, including on a 401 â€” an error response is still something the browser must be able
+   to read.
+
+**The lesson worth saying out loud:** this is the third time the same mistake appeared â€” the M1
+`CorsFilter` that had to be removed, the duplicated `X-Correlation-Id`, and this. A gateway
+combines two sets of response headers, so any header both ends set is a duplicate waiting to
+happen, and the only headers that matter here are the ones the browser reads and no test client
+does.
+
