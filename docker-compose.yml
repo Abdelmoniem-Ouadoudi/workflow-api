@@ -10,6 +10,9 @@ services:
       - "5433:5432"
     volumes:
       - workflow_pgdata:/var/lib/postgresql/data
+      # Creates the second database, authdb. The image runs this only on an empty volume,
+      # so on an existing installation create it by hand once instead of wiping the data.
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
 
 volumes:
   workflow_pgdata:

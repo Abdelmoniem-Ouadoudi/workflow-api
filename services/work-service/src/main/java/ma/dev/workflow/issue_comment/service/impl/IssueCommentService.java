@@ -2,6 +2,7 @@ package ma.dev.workflow.issue_comment.service.impl;
 
 import jakarta.persistence.EntityNotFoundException;
 import ma.dev.workflow.common.exception.BusinessRuleException;
+import ma.dev.workflow.common.security.CurrentUser;
 import ma.dev.workflow.issue.models.Issue;
 import ma.dev.workflow.issue.repositories.IssueRepository;
 import ma.dev.workflow.issue_comment.dto.IssueCommentDTO;
@@ -24,15 +25,18 @@ public class IssueCommentService implements IIssueCommentService {
     private final IssueRepository issueRepository;
     private final UserRepository userRepository;
     private final IssueCommentMapper commentMapper;
+    private final CurrentUser currentUser;
 
     public IssueCommentService(IssueCommentRepository commentRepository,
                                IssueRepository issueRepository,
                                UserRepository userRepository,
-                               IssueCommentMapper commentMapper) {
+                               IssueCommentMapper commentMapper,
+                               CurrentUser currentUser) {
         this.commentRepository = commentRepository;
         this.issueRepository = issueRepository;
         this.userRepository = userRepository;
         this.commentMapper = commentMapper;
+        this.currentUser = currentUser;
     }
 
     @Override
@@ -45,9 +49,12 @@ public class IssueCommentService implements IIssueCommentService {
     @Transactional
     public IssueCommentDTO create(Long issueId, IssueCommentDTO dto) {
         Issue issue = requireIssue(issueId);
-        User author = userRepository.findById(dto.getAuthorId())
+        // The author is whoever holds the token. Reading it from the body let any caller post a
+        // comment under someone else's name.
+        Long authorId = currentUser.requireId();
+        User author = userRepository.findById(authorId)
                 .orElseThrow(() -> new BusinessRuleException("AUTHOR_NOT_FOUND",
-                        "User not found: " + dto.getAuthorId()));
+                        "User not found: " + authorId));
 
         IssueComment comment = new IssueComment();
         comment.setContent(dto.getContent());

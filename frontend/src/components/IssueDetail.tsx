@@ -3,6 +3,7 @@ import type { FormEvent } from 'react'
 import { ApiError, api } from '../api/client'
 import type { IssueComment, IssueSummary, Status, User } from '../api/types'
 import { STATUS_LABEL } from '../api/types'
+import type { Session } from '../auth/session'
 
 const timeFormatter = new Intl.DateTimeFormat(undefined, {
   month: 'short',
@@ -14,6 +15,7 @@ const timeFormatter = new Intl.DateTimeFormat(undefined, {
 interface Props {
   issue: IssueSummary
   users: User[]
+  session: Session
   onClose: () => void
   onAssigneeChanged: (assigneeId: number | null, version: number) => void
   onAssignFailed: (message: string) => void
@@ -24,10 +26,16 @@ interface Props {
  * only path that changes it, so this panel does not offer a second one that could disagree
  * with the workflow map.
  */
-export function IssueDetail({ issue, users, onClose, onAssigneeChanged, onAssignFailed }: Props) {
+export function IssueDetail({
+  issue,
+  users,
+  session,
+  onClose,
+  onAssigneeChanged,
+  onAssignFailed,
+}: Props) {
   const [comments, setComments] = useState<IssueComment[] | null>(null)
   const [draft, setDraft] = useState('')
-  const [authorId, setAuthorId] = useState<number | ''>(users[0]?.id ?? '')
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editDraft, setEditDraft] = useState('')
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null)
@@ -78,9 +86,10 @@ export function IssueDetail({ issue, users, onClose, onAssigneeChanged, onAssign
 
   async function handlePost(event: FormEvent) {
     event.preventDefault()
-    if (draft.trim() === '' || authorId === '') return
+    if (draft.trim() === '') return
     try {
-      const created = await api.createComment(issue.id, draft, authorId)
+      // No author is sent: the server reads it from the token. Whoever is signed in is the author.
+      const created = await api.createComment(issue.id, draft)
       setComments((current) => [...(current ?? []), created])
       setDraft('')
     } catch (err) {
@@ -96,7 +105,7 @@ export function IssueDetail({ issue, users, onClose, onAssigneeChanged, onAssign
   async function saveEdit(comment: IssueComment) {
     if (editDraft.trim() === '') return
     try {
-      const updated = await api.updateComment(issue.id, comment.id, editDraft, comment.authorId)
+      const updated = await api.updateComment(issue.id, comment.id, editDraft)
       setComments((current) =>
         (current ?? []).map((existing) => (existing.id === comment.id ? updated : existing)),
       )
@@ -233,19 +242,12 @@ export function IssueDetail({ issue, users, onClose, onAssigneeChanged, onAssign
               aria-label="New comment"
             />
             <div className="comment-compose__row">
-              <select
-                className="compose__select"
-                value={authorId}
-                onChange={(event) => setAuthorId(Number(event.target.value))}
-                aria-label="Commenting as"
-              >
-                {users.map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.username}
-                  </option>
-                ))}
-              </select>
-              <button type="submit" className="button">
+              {/* Was a "commenting as" dropdown. The server takes the author from the token now,
+                  so the choice was never real — it only let you sign someone else's name. */}
+              <span className="comment-compose__as">
+                as <strong>{session.username}</strong>
+              </span>
+              <button type="submit" className="button" disabled={draft.trim() === ''}>
                 Comment
               </button>
             </div>

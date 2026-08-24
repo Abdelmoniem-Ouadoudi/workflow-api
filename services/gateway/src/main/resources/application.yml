@@ -1,0 +1,89 @@
+spring:
+  application:
+    name: gateway
+
+  cloud:
+    gateway:
+      server:
+        webmvc:
+          routes:
+            # lb:// is the point of the registry. The route names a service; Eureka turns that
+            # name into a live host and port. No localhost and no port number appears here, so
+            # a service can move or restart on a different port and this file never changes.
+            - id: auth-service
+              uri: lb://auth-service
+              predicates:
+                - Path=/auth/**
+              filters:
+                - name: CircuitBreaker
+                  args:
+                    id: authServiceCircuitBreaker
+                    fallbackPath: /fallback/auth-service
+
+            # One route for the five groups work-service owns. No path rewriting: work-service
+            # already serves /projects at its root, so the URL the browser sends is the URL the
+            # service receives, and a stack trace can be read against the same path the user saw.
+            #
+            # Every top-level path work-service exposes has to be listed. /sprints was missed at
+            # first and the gateway answered 404 for a service that was up and healthy, which is
+            # the standing cost of an allow-list: it is safe by default and silent when incomplete.
+            # Comments and attachments need no entry - they are nested under /issues/**.
+            - id: work-service
+              uri: lb://work-service
+              predicates:
+                - Path=/projects/**,/boards/**,/sprints/**,/issues/**,/users/**
+              filters:
+                - name: CircuitBreaker
+                  args:
+                    id: workServiceCircuitBreaker
+                    fallbackPath: /fallback/work-service
+
+server:
+  port: 8090
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka
+  instance:
+    # Register by IP rather than by hostname: on Windows the machine name often does not resolve
+    # from another process, and a caller would then hold an address it cannot dial.
+    prefer-ip-address: true
+
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        # Percentage of failed calls in the window that trips the breaker.
+        failure-rate-threshold: 50
+        sliding-window-type: COUNT_BASED
+        # Small because this is a demo: five calls is enough to see the breaker open during a
+        # defence. A production window is measured in hundreds, so one slow minute does not
+        # take a healthy service out of rotation.
+        sliding-window-size: 5
+        minimum-number-of-calls: 5
+        # After 10s it lets a few calls through to see whether the service came back, instead of
+        # staying open until someone restarts the gateway.
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 2
+        automatic-transition-from-open-to-half-open-enabled: true
+  timelimiter:
+    configs:
+      default:
+        # A hung service must fail here rather than hold a gateway thread indefinitely. This is
+        # the failure the breaker is counting.
+        timeout-duration: 5s
+
+app:
+  # Explicit origins, never "*": the spec forbids combining it with allowCredentials.
+  cors:
+    allowed-origins: http://localhost:5173,http://127.0.0.1:5173
+  jwt:
+    # The same secret auth-service signs with. The gateway only verifies; it issues nothing.
+    secret: ${JWT_SECRET:dev-only-secret-change-me-in-production-32+}
+    issuer: auth-service
+
+logging:
+  pattern:
+    # The correlation id this gateway generates, on every one of its own log lines.
+    level: "%5p [${spring.application.name},%X{corrId:-no-corr-id}]"

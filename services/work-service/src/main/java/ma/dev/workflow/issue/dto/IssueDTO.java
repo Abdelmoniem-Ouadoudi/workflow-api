@@ -48,7 +48,12 @@ public class IssueDTO {
     /** Null means the backlog. */
     private Long sprintId;
 
-    @NotNull(message = "Reporter id is required")
+    /**
+     * Taken from the token, never from the request. Sending it has no effect: whoever holds the
+     * token is the reporter. Before M2 this was a writable field, which meant any caller could
+     * file an issue in someone else's name.
+     */
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private Long reporterId;
 
     private Long assigneeId;

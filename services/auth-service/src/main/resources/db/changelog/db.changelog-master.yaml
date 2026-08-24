@@ -1,0 +1,5 @@
+databaseChangeLog:
+  # Explicit includes, never includeAll: includeAll orders files alphabetically, which is not
+  # the order migrations must run in.
+  - include:
+      file: db/changelog/changes/m2/2.0.1-create-account-table.yml

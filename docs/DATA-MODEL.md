@@ -1,7 +1,16 @@
 # DATA-MODEL.md — the tables and how they connect
 
-Read from the live database, not from the migration files. 7 business tables plus the two
-Liquibase bookkeeping tables (`databasechangelog`, `databasechangeloglock`).
+Read from the live database, not from the migration files.
+
+Since M2 there are **two databases**, both in the same Postgres process on 5433:
+
+| Database | Owner | Holds |
+|---|---|---|
+| `workflow` | work-service | 7 business tables — projects, boards, sprints, issues, comments, attachments, people |
+| `authdb` | auth-service | 1 table — `account`, the credentials |
+
+Each has its own Liquibase changelog and its own connection. Nothing can join across them, and
+that is the point rather than a limitation: see `account` at the end of this file.
 
 `ai_classification` arrives at M3 and is not here yet.
 
@@ -270,6 +279,46 @@ stores a path and nothing more. Multipart upload of the bytes is still open in
 
 ---
 
+# account
+### database `authdb`, owned by auth-service — added at M2
+
+One login. It holds only what is needed to prove who you are.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | bigint | primary key |
+| `username` | varchar(50) | not null, **unique** |
+| `password_hash` | varchar(72) | not null — BCrypt writes 60 characters; 72 leaves room for a longer prefix if the cost factor or algorithm changes |
+| `role` | varchar(20) | not null — `DEVELOPER`, `MANAGER`, `ADMIN`, same three values as `app_user.role` |
+| `work_user_id` | bigint | not null, **unique**, and deliberately **not a foreign key** |
+| `is_active` | boolean | not null, default true |
+| `created_at` / `updated_at` | timestamp | not null |
+
+**No email.** The address lives on `app_user`, which work-service owns. Registration passes it
+through and forgets it, because a second copy would be a second thing to change when someone
+updates their address, with no rule saying which one wins.
+
+**No password column on `app_user`, and there never will be.** The profile and the credential have
+different owners and different lifecycles. `app_user` describes a person; `account` proves one.
+
+### `work_user_id` is the seam
+
+It holds the `app_user.id` of the same person, in the other database.
+
+It cannot be a foreign key. Postgres constraints do not reach across databases, so nothing at the
+schema level can guarantee that the id points at a row that exists. The uniqueness — one login per
+profile — is enforced here; the existence is enforced by the registration flow, which creates the
+profile first and only saves the account once it has an id back.
+
+That missing constraint is the service boundary, visible in the schema. It is also the reason
+registration is a dual write, and what happens when half of it fails is written down in
+[BACKLOG.md](BACKLOG.md) item 13.
+
+The claim `uid` in every JWT is this value, which is why no service ever has to call auth-service
+to find out who the caller is.
+
+---
+
 # Rules the database enforces by itself
 
 These survive even if someone connects with pgAdmin and writes SQL by hand:
@@ -282,6 +331,7 @@ These survive even if someone connects with pgAdmin and writes SQL by hand:
 | one ACTIVE sprint per board | partial unique index |
 | no orphan boards, sprints, issues, comments, attachments | `NOT NULL` foreign keys |
 | a reporter or comment author cannot be deleted | `ON DELETE RESTRICT` |
+| one login per username, one login per profile | `UNIQUE (username)`, `UNIQUE (work_user_id)` on `account` |
 
 # Rules only the code enforces
 
@@ -296,3 +346,6 @@ These the schema cannot express, so they live in the service layer:
 | a completed sprint accepts no new issues | `IssueService.requireSprintOnBoard` |
 | an active sprint cannot be deleted | `SprintService.deleteById` |
 | `end_date` cannot be before `start_date` | `SprintService.requireValidDates` |
+| every `account.work_user_id` points at a real `app_user` | `AuthService.register` — no constraint can cross a database |
+| an issue's reporter is the caller, not the request body | `IssueService.create` via `CurrentUser.requireId` |
+| a comment's author is the caller, not the request body | `IssueCommentService.create` via `CurrentUser.requireId` |

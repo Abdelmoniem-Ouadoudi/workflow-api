@@ -2,7 +2,6 @@ package ma.dev.workflow.issue_comment.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -22,7 +21,11 @@ public class IssueCommentDTO {
     @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private Long issueId;
 
-    @NotNull(message = "Author id is required")
+    /**
+     * Taken from the token, never from the request. Before M2 this was writable, which meant any
+     * caller could post a comment under someone else's name.
+     */
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private Long authorId;
 
     @JsonProperty(access = JsonProperty.Access.READ_ONLY)

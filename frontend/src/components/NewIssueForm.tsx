@@ -1,36 +1,34 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { ApiError, api } from '../api/client'
-import type { IssueType, Priority, User } from '../api/types'
+import type { IssueType, Priority } from '../api/types'
 import { ISSUE_TYPES, PRIORITIES } from '../api/types'
 
 interface Props {
   projectId: number
   boardId: number
-  users: User[]
   onCreated: () => void
   onFailed: (message: string) => void
 }
 
-export function NewIssueForm({ projectId, boardId, users, onCreated, onFailed }: Props) {
+/**
+ * No "reported by" field any more. The server takes the reporter from the token, so the choice
+ * was never real — it was a way to file work under someone else's name. One fewer control, and
+ * one fewer thing that could be wrong.
+ */
+export function NewIssueForm({ projectId, boardId, onCreated, onFailed }: Props) {
   const [title, setTitle] = useState('')
   const [type, setType] = useState<IssueType>('TASK')
   const [priority, setPriority] = useState<Priority>('MEDIUM')
-  const [reporterId, setReporterId] = useState<number | ''>(users[0]?.id ?? '')
   const [titleError, setTitleError] = useState<string | undefined>()
   const [saving, setSaving] = useState(false)
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
-    if (reporterId === '') {
-      onFailed('Add a person before creating work. Every issue needs a reporter.')
-      return
-    }
-
     setSaving(true)
     setTitleError(undefined)
     try {
-      await api.createIssue({ title, type, priority, projectId, boardId, reporterId })
+      await api.createIssue({ title, type, priority, projectId, boardId })
       setTitle('')
       onCreated()
     } catch (error) {
@@ -80,19 +78,6 @@ export function NewIssueForm({ projectId, boardId, users, onCreated, onFailed }:
         {PRIORITIES.map((option) => (
           <option key={option} value={option}>
             {option.toLowerCase()}
-          </option>
-        ))}
-      </select>
-
-      <select
-        className="compose__select"
-        value={reporterId}
-        onChange={(event) => setReporterId(Number(event.target.value))}
-        aria-label="Reported by"
-      >
-        {users.map((user) => (
-          <option key={user.id} value={user.id}>
-            {user.username}
           </option>
         ))}
       </select>

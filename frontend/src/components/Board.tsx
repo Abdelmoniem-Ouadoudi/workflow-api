@@ -3,6 +3,7 @@ import { ApiError, api } from '../api/client'
 import type { BoardView, IssueSummary, Project, Status, User } from '../api/types'
 import { STATUSES } from '../api/types'
 import { canMove, holdReason } from '../api/workflow'
+import type { Session } from '../auth/session'
 import { Column } from './Column'
 import type { ColumnState } from './Column'
 import { IssueDetail } from './IssueDetail'
@@ -18,10 +19,11 @@ interface Lift {
 
 interface Props {
   project: Project
+  session: Session
   onLeave: () => void
 }
 
-export function Board({ project, onLeave }: Props) {
+export function Board({ project, session, onLeave }: Props) {
   const [view, setView] = useState<BoardView | null>(null)
   const [users, setUsers] = useState<User[]>([])
   const [lift, setLift] = useState<Lift | null>(null)
@@ -188,7 +190,6 @@ export function Board({ project, onLeave }: Props) {
         <NewIssueForm
           projectId={project.id}
           boardId={view.boardId}
-          users={users}
           onCreated={() => void load()}
           onFailed={(message) => setNotice({ tone: 'stop', message })}
         />
@@ -223,6 +224,7 @@ export function Board({ project, onLeave }: Props) {
         <IssueDetail
           issue={openIssue}
           users={users}
+          session={session}
           onClose={() => setOpenIssueId(null)}
           onAssigneeChanged={(assigneeId, version) => applyAssignee(openIssue.id, assigneeId, version)}
           onAssignFailed={(message) => setNotice({ tone: 'stop', message })}

@@ -1,0 +1,64 @@
+databaseChangeLog:
+  - changeSet:
+      id: 2.0.1
+      author: abdelmoniem
+      comment: >
+        The credential table. It lives in authdb, a different database from the core schema,
+        so nothing here can be joined to a project or an issue. That is the service boundary.
+      changes:
+        - createTable:
+            tableName: account
+            columns:
+              - column:
+                  name: id
+                  type: bigint
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: username
+                  type: varchar(50)
+                  constraints:
+                    nullable: false
+                    unique: true
+              # BCrypt writes 60 characters. 72 leaves room for a longer prefix if the
+              # algorithm or the cost factor changes later.
+              - column:
+                  name: password_hash
+                  type: varchar(72)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: role
+                  type: varchar(20)
+                  constraints:
+                    nullable: false
+              # The app_user id in work-service. Unique, so one login maps to one profile,
+              # but NOT a foreign key: it points into another database and no constraint
+              # can reach across. Enforced by the registration flow instead.
+              - column:
+                  name: work_user_id
+                  type: bigint
+                  constraints:
+                    nullable: false
+                    unique: true
+              - column:
+                  name: is_active
+                  type: boolean
+                  defaultValueBoolean: true
+                  constraints:
+                    nullable: false
+              - column:
+                  name: created_at
+                  type: timestamp
+                  constraints:
+                    nullable: false
+              - column:
+                  name: updated_at
+                  type: timestamp
+                  constraints:
+                    nullable: false
+      rollback:
+        - dropTable:
+            tableName: account

@@ -2,11 +2,15 @@ import { useEffect, useState } from 'react'
 import type { CSSProperties, FormEvent } from 'react'
 import { ApiError, api } from '../api/client'
 import type { Project } from '../api/types'
+import type { Session } from '../auth/session'
 import { Notice } from './Notice'
 import type { NoticeState } from './Notice'
+import { WhoAmI } from './WhoAmI'
 
 interface Props {
+  session: Session
   onOpen: (project: Project) => void
+  onSignOut: () => void
 }
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' })
@@ -15,7 +19,7 @@ function formatShortDate(iso: string): string {
   return dateFormatter.format(new Date(iso))
 }
 
-export function ProjectList({ onOpen }: Props) {
+export function ProjectList({ session, onOpen, onSignOut }: Props) {
   const [projects, setProjects] = useState<Project[]>([])
   const [key, setKey] = useState('')
   const [name, setName] = useState('')
@@ -61,11 +65,16 @@ export function ProjectList({ onOpen }: Props) {
       <Notice notice={notice} onDismiss={() => setNotice(null)} />
 
       <header className="masthead">
-        {projects.length > 0 && (
-          <p className="masthead__eyebrow">
-            {projects.length} {projects.length === 1 ? 'project' : 'projects'} tracked
-          </p>
-        )}
+        <div className="masthead__top">
+          {projects.length > 0 ? (
+            <p className="masthead__eyebrow">
+              {projects.length} {projects.length === 1 ? 'project' : 'projects'} tracked
+            </p>
+          ) : (
+            <span />
+          )}
+          <WhoAmI session={session} onSignOut={onSignOut} />
+        </div>
         <h1 className="masthead__title">Workflow</h1>
         <p className="masthead__sub">Track work through three states. Nothing skips a step.</p>
         <div className="masthead__rail" aria-hidden="true" />

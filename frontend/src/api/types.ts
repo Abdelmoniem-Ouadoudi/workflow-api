@@ -97,6 +97,26 @@ export interface IssueComment {
   updatedAt: string
 }
 
+/** What POST /auth/register and POST /auth/login both return. */
+export interface TokenResponse {
+  token: string
+  expiresAt: string
+  /**
+   * The work-service user id, not the account id. It is what an issue stores as its reporter,
+   * so it is the only id the rest of the app ever needs.
+   */
+  userId: number
+  username: string
+  role: Role
+}
+
+/** What GET /auth/me returns: the signed-in user, read back off the token. */
+export interface CurrentUser {
+  userId: number
+  username: string
+  role: Role
+}
+
 export interface FieldError {
   field: string
   message: string

@@ -4,6 +4,7 @@ import jakarta.persistence.EntityNotFoundException;
 import ma.dev.workflow.board.models.Board;
 import ma.dev.workflow.board.repositories.BoardRepository;
 import ma.dev.workflow.common.exception.BusinessRuleException;
+import ma.dev.workflow.common.security.CurrentUser;
 import ma.dev.workflow.issue.dto.IssueDTO;
 import ma.dev.workflow.issue.dto.IssueStatusUpdateDTO;
 import ma.dev.workflow.issue.dto.mapper.IssueMapper;
@@ -47,19 +48,22 @@ public class IssueService implements IIssueService {
     private final SprintRepository sprintRepository;
     private final UserRepository userRepository;
     private final IssueMapper issueMapper;
+    private final CurrentUser currentUser;
 
     public IssueService(IssueRepository issueRepository,
                         ProjectRepository projectRepository,
                         BoardRepository boardRepository,
                         SprintRepository sprintRepository,
                         UserRepository userRepository,
-                        IssueMapper issueMapper) {
+                        IssueMapper issueMapper,
+                        CurrentUser currentUser) {
         this.issueRepository = issueRepository;
         this.projectRepository = projectRepository;
         this.boardRepository = boardRepository;
         this.sprintRepository = sprintRepository;
         this.userRepository = userRepository;
         this.issueMapper = issueMapper;
+        this.currentUser = currentUser;
     }
 
     @Override
@@ -86,7 +90,9 @@ public class IssueService implements IIssueService {
         Issue issue = issueMapper.fromDTO(dto);
         issue.setProject(project);
         issue.setStatus(Status.TO_DO);
-        issue.setReporter(requireUser(dto.getReporterId(), "REPORTER_NOT_FOUND"));
+        // The reporter is whoever is holding the token, not whoever the request body claims.
+        // Reading it from the body let any caller file an issue in someone else's name.
+        issue.setReporter(requireUser(currentUser.requireId(), "REPORTER_NOT_FOUND"));
 
         if (dto.getAssigneeId() != null) {
             issue.setAssignee(requireUser(dto.getAssigneeId(), "ASSIGNEE_NOT_FOUND"));

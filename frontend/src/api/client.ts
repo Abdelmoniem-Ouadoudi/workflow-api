@@ -1,7 +1,9 @@
+import { endSession, getSession, startSession } from '../auth/session'
 import type {
   ApiErrorBody,
   Board,
   BoardView,
+  CurrentUser,
   FieldError,
   Issue,
   IssueAssignment,
@@ -9,15 +11,22 @@ import type {
   IssueType,
   Priority,
   Project,
+  Role,
   Status,
+  TokenResponse,
   User,
 } from './types'
 
-const BASE_URL = 'http://localhost:8081'
+/**
+ * The gateway, not work-service. Since M2 the browser knows exactly one address: the gateway
+ * routes to auth-service or work-service by path, asks Eureka where they are, and refuses
+ * anything without a valid token before it reaches either of them.
+ */
+const BASE_URL = 'http://localhost:8090'
 
 /**
- * Every failing request throws this. The backend already returns one envelope for every
- * failure, so the parsing happens once here instead of in each component.
+ * Every failing request throws this. Every service in the system returns one envelope — including
+ * the gateway when a service is down — so the parsing happens once here instead of per component.
  */
 export class ApiError extends Error {
   readonly status: number
@@ -38,22 +47,50 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+/** Called when the server says the session is no longer good. App re-renders on the login screen. */
+type ExpiryListener = () => void
+let onSessionExpired: ExpiryListener = () => {}
+
+export function setSessionExpiredHandler(listener: ExpiryListener): void {
+  onSessionExpired = listener
+}
+
+interface RequestOptions extends RequestInit {
+  /** Login and register are the two calls made without a token. */
+  anonymous?: boolean
+}
+
+async function request<T>(path: string, options?: RequestOptions): Promise<T> {
+  const { anonymous, ...init } = options ?? {}
+  const session = getSession()
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(init.headers as Record<string, string> | undefined),
+  }
+  if (!anonymous && session !== null) {
+    headers.Authorization = `Bearer ${session.token}`
+  }
+
   let response: Response
   try {
-    response = await fetch(`${BASE_URL}${path}`, {
-      ...init,
-      headers: { 'Content-Type': 'application/json', ...init?.headers },
-    })
+    response = await fetch(`${BASE_URL}${path}`, { ...init, headers })
   } catch {
-    // fetch only rejects when the request never completed: server down, DNS, CORS block.
+    // fetch only rejects when the request never completed: gateway down, DNS, CORS block.
     throw new ApiError({
       timestamp: new Date().toISOString(),
       status: 0,
       code: 'UNREACHABLE',
-      message: 'Cannot reach the server. Check that work-service is running on port 8081.',
+      message: 'Cannot reach the server. Check that the gateway is running on port 8090.',
       path,
     })
+  }
+
+  // The token expired, or it was never valid. Anything else would have been a 403.
+  // Clearing here rather than in each component means one expiry rule for the whole app.
+  if (response.status === 401 && !anonymous) {
+    endSession()
+    onSessionExpired()
   }
 
   if (response.status === 204) {
@@ -83,16 +120,46 @@ export interface NewProject {
   description?: string
 }
 
+/**
+ * No `reporterId`. Since M2 the server takes the reporter from the token, so sending one would
+ * be ignored — and before M2 it meant anyone could file an issue in someone else's name.
+ */
 export interface NewIssue {
   title: string
   type: IssueType
   priority: Priority
   projectId: number
-  reporterId: number
   boardId: number
 }
 
+export interface Credentials {
+  username: string
+  password: string
+}
+
+export interface Registration extends Credentials {
+  email: string
+  role: Role
+}
+
 export const api = {
+  register: (registration: Registration) =>
+    request<TokenResponse>('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(registration),
+      anonymous: true,
+    }).then(startSession),
+
+  login: (credentials: Credentials) =>
+    request<TokenResponse>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify(credentials),
+      anonymous: true,
+    }).then(startSession),
+
+  /** Confirms a stored token is still accepted before the app renders a board with it. */
+  me: () => request<CurrentUser>('/auth/me'),
+
   listProjects: () => request<Project[]>('/projects'),
 
   createProject: (project: NewProject) =>
@@ -126,17 +193,17 @@ export const api = {
 
   listComments: (issueId: number) => request<IssueComment[]>(`/issues/${issueId}/comments`),
 
-  createComment: (issueId: number, content: string, authorId: number) =>
+  /** No author is sent: the server reads it from the token. */
+  createComment: (issueId: number, content: string) =>
     request<IssueComment>(`/issues/${issueId}/comments`, {
       method: 'POST',
-      body: JSON.stringify({ content, authorId }),
+      body: JSON.stringify({ content }),
     }),
 
-  /** The backend keeps the original author regardless of what is sent here — only content changes. */
-  updateComment: (issueId: number, commentId: number, content: string, authorId: number) =>
+  updateComment: (issueId: number, commentId: number, content: string) =>
     request<IssueComment>(`/issues/${issueId}/comments/${commentId}`, {
       method: 'PUT',
-      body: JSON.stringify({ content, authorId }),
+      body: JSON.stringify({ content }),
     }),
 
   deleteComment: (issueId: number, commentId: number) =>

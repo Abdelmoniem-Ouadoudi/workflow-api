@@ -378,3 +378,153 @@ registry. The registry server is neither — it does not need to appear in its o
 does not need to fetch what it already holds. Left at the defaults (`true`), a standalone Eureka
 server would try to register with and query itself, which works but adds pointless traffic and
 a confusing self-referential entry in the dashboard.
+
+---
+
+# M2 â€” what was actually built
+
+## Why the token is verified twice, at the gateway and again at work-service
+
+Because the gateway is not a wall around anything. work-service listens on 8081 and anything on
+the network can call it directly, so it verifies the token itself. The gateway is where a bad
+request fails cheaply, before it costs a service a thread or a database connection.
+
+Demonstrable rather than asserted: `curl localhost:8081/projects` with no token returns 401.
+
+If asked "so is the gateway pointless": no â€” it is the single address the browser knows, the one
+place CORS is configured, where the correlation id is born, and where a circuit breaker keeps one
+failing service from taking down the rest.
+
+## Why HS256 with a shared secret, and not RS256
+
+Symmetric, one secret in config, auth-service signs and the other two verify. The weakness is
+real and worth stating first: any service holding that secret could mint a token, not just check
+one. It is acceptable because all four services deploy together from one repository.
+
+RS256 is the production answer â€” the private key stays in auth-service, everyone else gets the
+public half through a JWK set â€” and the verifying code does not change, only where the decoder
+gets its key material. It was not built now because the keypair would be generated at startup, so
+restarting auth-service would invalidate every token in existence: a live hazard during a defence,
+for a property nobody here is attacking. Written down in `BACKLOG.md` item 12.
+
+## Why auth-service has its own database
+
+Auth data has a different lifecycle and a different blast radius. It lives in `authdb` with its
+own Liquibase changelog, so work-service physically cannot join a credential to an issue â€” there
+is no connection from one to the other.
+
+They share one Postgres process. That is a deployment cost in a demo, not a coupling: moving auth
+to its own instance is a change to one connection string, because nothing in the code assumes they
+are together.
+
+## Why `account.work_user_id` is unique but is not a foreign key
+
+It holds the `app_user` id in work-service. It cannot be a foreign key: it points into another
+database and no constraint can reach across. The uniqueness is enforced here, the existence is
+enforced by the registration flow, and the absence of the constraint is the service boundary made
+visible in the schema.
+
+## Why registration writes to two databases, and what happens when half of it fails
+
+Order: check the username locally, call work-service `POST /users` to create the profile, save the
+account with the id that came back, issue the token.
+
+If the second write fails, work-service keeps a profile nobody can log in as. That is the
+dual-write problem and it has no local fix â€” the real answers are an outbox table or an idempotent
+retry that reuses an existing profile. The failed call is logged with the orphaned id so it can be
+found, and it is in `BACKLOG.md` item 13 rather than hidden.
+
+The method is deliberately **not** `@Transactional`: a transaction there would hold a pooled
+database connection open across an HTTP call to another service, so a slow work-service would drain
+this service's connection pool. There is one write, and `save` is atomic on its own.
+
+## How auth-service authenticates itself when it calls work-service
+
+Registration happens before the person has a token, so that one call needs its own identity.
+auth-service mints a 60-second token with `role=SERVICE`, and work-service requires
+`hasRole("SERVICE")` on `POST /users`.
+
+The point is what it avoids: no second authentication scheme, and no permit-all hole punched in
+work-service so that registration can work. It also means there is no other way to create a person
+â€” a profile can never exist without a login behind it.
+
+## Why `reporterId` and `authorId` no longer come from the request body
+
+Because before M2 they did, which meant any caller could file an issue or post a comment in someone
+else's name. They now come from the `uid` claim, which the caller cannot alter without breaking the
+signature. The DTO fields are `READ_ONLY`, so sending one is ignored rather than rejected.
+
+The smoke test proves it: it posts an issue with `"reporterId": 999999` and asserts the stored
+reporter is the caller.
+
+## Why the gateway is servlet-based and not reactive
+
+Spring Cloud Gateway ships both. The reactive variant wins on connection-heavy workloads. At four
+services and one user, one programming model across the whole system is worth more than the
+throughput â€” the same `SecurityFilterChain`, the same `OncePerRequestFilter`, the same
+`@RestController` as everywhere else.
+
+## The Eureka bug: "No instances available for localhost"
+
+auth-service needs a load-balanced HTTP client to call `http://work-service`. The first version
+declared `@LoadBalanced RestClient.Builder` as the only builder bean â€” and Spring Cloud builds
+**Eureka's own client** from whatever `RestClient.Builder` is in the context. So the registry client
+became load-balanced too and tried to resolve the literal host `localhost` as a service name,
+through the registry it had not managed to reach yet.
+
+The fix is two beans: a plain `@Primary` one that Eureka picks up, and a `@LoadBalanced` one
+injected by name into `WorkServiceClient`. The rule underneath it: **infrastructure calls go to an
+address, service calls go to a name.** Only the second kind wants a load balancer.
+
+## The duplicated `X-Correlation-Id`
+
+Every service set the header on its response, so a call through the gateway came back with the
+header twice. A service now stamps the response only when it generated the id itself â€” meaning the
+call did not come through the gateway. Exactly the same mistake the temporary `CorsFilter` had to
+be removed for, which is why it was worth writing down twice.
+
+## Why `/error` is explicitly permitted in all three security configs
+
+Spring forwards an unhandled error to `/error` as a second, internal dispatch, and the security
+filters run on it too. Without permitting it, an authenticated caller asking for an issue that does
+not exist gets `401 "a valid token is required"` instead of `404` â€” the error message actively lies
+about what went wrong. The smoke test asserts an authenticated 404 stays a 404.
+
+## Why the gateway route list missed `/sprints` at first
+
+The route predicate is an allow-list of top-level paths. `/sprints/**` was left out, so the gateway
+answered 404 for a service that was up and healthy. That is the standing cost of an allow-list: it
+is safe when incomplete, and silent about it. Comments and attachments need no entry because they
+are nested under `/issues/**`.
+
+## Why there is only one role rule
+
+`DELETE /users/**` requires ADMIN. Nothing else checks a role.
+
+The mechanism is fully built â€” the claim travels, `JwtAuthenticationConverter` maps it to
+`ROLE_<value>`, and the smoke test proves a DEVELOPER gets 403 where an ADMIN gets 200. What is
+missing is the domain knowledge: the class diagram does not say who may close a sprint or delete a
+project, and inventing a rule it does not state would be guessing. A wrong rule is worse than a
+missing one. `BACKLOG.md` item 15.
+
+## Why MapStruct is in work-service but not auth-service
+
+work-service maps wide entities to DTOs in seven slices. auth-service has one three-field response,
+built in the service. An annotation processor for that would be ceremony, and it would mean editing
+two `maven-compiler-plugin` executions to keep the Lombok-before-MapStruct ordering correct.
+
+## Why the error envelope is copied into each service instead of shared
+
+A shared library would couple the deployments: changing the envelope would force all four services
+to be rebuilt and released together, which is the coupling the split was meant to remove. Two copies
+of a sixty-line class is the cheaper trade at four services. It stops being the right trade when the
+envelope is stable and there are more consumers than copies.
+
+## Where `ErrorController` lives in Boot 4
+
+`org.springframework.boot.webmvc.error.ErrorController`, not
+`org.springframework.boot.web.servlet.error.ErrorController` where every Boot 3 tutorial puts it.
+Implementing that interface is what switches off Boot's own `BasicErrorController`, which is
+`@ConditionalOnMissingBean` on it â€” without it, both map `/error` and the context refuses to start
+on an ambiguous mapping.
+

@@ -873,6 +873,156 @@ body {
   gap: var(--step);
 }
 
+/* --- gate (sign in) ------------------------------------------------------
+   The way onto the network. Same ground, same rail, same type as the board:
+   this is the first screen anyone sees, so it has to read as the same system.
+   One narrow panel, and no decoration the board does not already use.
+   ------------------------------------------------------------------------- */
+
+.gate {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(var(--step) * 3);
+}
+
+.gate__panel {
+  width: 100%;
+  max-width: 380px;
+}
+
+.gate__head {
+  margin-bottom: calc(var(--step) * 3);
+}
+
+.gate__title {
+  font-size: clamp(28px, 5vw, 38px);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  margin: 0;
+}
+
+.gate__sub {
+  margin: 4px 0 0;
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+
+/* Two states of one control, drawn as a route selector rather than as tabs. */
+.gate__modes {
+  display: flex;
+  gap: 0;
+  margin-bottom: calc(var(--step) * 3);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.gate__mode {
+  flex: 1;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  background: var(--panel);
+  border: 0;
+  padding: 10px 8px;
+  cursor: pointer;
+  transition: color var(--lift), background var(--lift);
+}
+
+.gate__mode:hover {
+  color: var(--ink);
+}
+
+.gate__mode--on {
+  color: var(--ground);
+  background: var(--ink);
+}
+
+.gate__form {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--step) * 2);
+}
+
+.gate__label {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.gate__hint {
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.gate__select {
+  width: 100%;
+  text-transform: none;
+}
+
+.gate__submit {
+  margin-top: var(--step);
+  padding: 11px 16px;
+}
+
+/* --- who is signed in ---------------------------------------------------- */
+
+.masthead__top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: calc(var(--step) * 2);
+  margin-bottom: 6px;
+}
+
+.whoami {
+  display: flex;
+  align-items: baseline;
+  gap: var(--step);
+  font-size: 13px;
+}
+
+.whoami__name {
+  font-weight: 600;
+}
+
+.whoami__role {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.whoami__out {
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--ink-soft);
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--rule);
+  padding: 0 0 1px;
+  cursor: pointer;
+}
+
+.whoami__out:hover {
+  color: var(--stop);
+  border-bottom-color: var(--stop);
+}
+
+.comment-compose__as {
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
 /* --- responsive ---------------------------------------------------------- */
 
 @media (max-width: 860px) {

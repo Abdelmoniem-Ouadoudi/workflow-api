@@ -31,19 +31,25 @@ Note: Spring AI 1.x and Spring Cloud 2025.0.x do NOT work with Boot 4. Ignore tu
 workflow-api/
 ├── docker-compose.yml
 ├── CLAUDE.md
+├── docker/postgres-init/  ← creates the second database, authdb (runs only on an empty volume)
 ├── docs/
 ├── frontend/              ← React + Vite, dev server on 5173
-├── scripts/smoke-test.sh
+├── scripts/smoke-test.sh  ← runs against the GATEWAY on 8090, not a service directly
 └── services/
     ├── work-service/      ← Maven commands run from HERE, not the root
-    ├── discovery-service/ ← Eureka registry, from M2
-    ├── auth-service/      ← from M2
-    └── gateway/           ← from M2
+    ├── discovery-service/ ← Eureka registry
+    ├── auth-service/      ← accounts, passwords, JWT
+    └── gateway/           ← the one address the browser knows
 ```
 
 Ports: work-service **8081**, discovery-service (Eureka) **8761**, auth-service **8082**,
 gateway **8090**, Postgres **5433**, Vite **5173**.
 8080 and 5432 are avoided because a local Apache and a local Postgres already use them.
+
+Databases: `workflow` (work-service) and `authdb` (auth-service), same Postgres process.
+
+**Start order:** discovery → work → auth → gateway. Registration takes up to ~30s to propagate;
+`http://localhost:8761` must list all three before the gateway can route.
 
 ## Source of truth
 - `docs/PROJECT.md` — milestones. Work ONLY on the current one.
