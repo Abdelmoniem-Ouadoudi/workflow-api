@@ -1023,6 +1023,132 @@ body {
   font-size: 13px;
 }
 
+/* --- suggestion chip -----------------------------------------------------
+   A proposal, not a state. The board's solid colours mean something committed;
+   this is outlined and sits on the panel tone, because the AI has an opinion
+   and not authority. Everything else — the mono eyebrow, the rule, the signal
+   colours — is already the board's vocabulary, reused rather than reinvented.
+   ------------------------------------------------------------------------- */
+
+.chip {
+  border: 1px solid var(--rule);
+  border-left: 2px solid var(--ink-soft);
+  border-radius: 2px;
+  background: var(--panel);
+  padding: calc(var(--step) * 1.5) calc(var(--step) * 2);
+  margin-bottom: calc(var(--step) * 3);
+}
+
+/* The one place the clear signal is spent here: the AI has actually decided
+   something, and the reader should be able to see that at a glance. */
+.chip--ready {
+  border-left-color: var(--clear);
+}
+
+.chip--waiting {
+  border-left-color: var(--rule);
+}
+
+.chip__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--step);
+  margin-bottom: var(--step);
+}
+
+.chip__eyebrow {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+/* Which model spoke. Deliberately legible rather than tucked away: "stub-v1"
+   has to be readable from across a room during a defence. */
+.chip__model {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.chip__line {
+  margin: 0;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+.chip__values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--step) * 2.5);
+  margin: 0 0 var(--step);
+}
+
+.chip__value {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.chip__value dt {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.chip__value dd {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+/* The missing-info half of the AI layer. Set quieter than the values above:
+   it is a prompt to the reporter, not a verdict on the ticket. */
+.chip__missing {
+  border-top: 1px dashed var(--rule);
+  padding-top: var(--step);
+  margin-top: var(--step);
+}
+
+.chip__missing-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.chip__missing ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.chip__missing li {
+  margin-bottom: 2px;
+}
+
+.chip__error {
+  margin: var(--step) 0 0;
+  color: var(--stop);
+  font-size: 13px;
+}
+
+.chip__actions {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--step) * 2);
+  margin-top: calc(var(--step) * 1.5);
+}
+
 /* --- responsive ---------------------------------------------------------- */
 
 @media (max-width: 860px) {

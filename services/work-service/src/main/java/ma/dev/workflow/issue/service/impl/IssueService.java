@@ -8,6 +8,7 @@ import ma.dev.workflow.common.security.CurrentUser;
 import ma.dev.workflow.issue.dto.IssueDTO;
 import ma.dev.workflow.issue.dto.IssueStatusUpdateDTO;
 import ma.dev.workflow.issue.dto.mapper.IssueMapper;
+import ma.dev.workflow.issue.events.IssueCreatedEvent;
 import ma.dev.workflow.issue.models.Issue;
 import ma.dev.workflow.issue.models.enums.Priority;
 import ma.dev.workflow.issue.models.enums.Status;
@@ -20,6 +21,7 @@ import ma.dev.workflow.sprint.models.enums.SprintState;
 import ma.dev.workflow.sprint.repositories.SprintRepository;
 import ma.dev.workflow.user.models.User;
 import ma.dev.workflow.user.repositories.UserRepository;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -49,6 +51,7 @@ public class IssueService implements IIssueService {
     private final UserRepository userRepository;
     private final IssueMapper issueMapper;
     private final CurrentUser currentUser;
+    private final ApplicationEventPublisher events;
 
     public IssueService(IssueRepository issueRepository,
                         ProjectRepository projectRepository,
@@ -56,7 +59,8 @@ public class IssueService implements IIssueService {
                         SprintRepository sprintRepository,
                         UserRepository userRepository,
                         IssueMapper issueMapper,
-                        CurrentUser currentUser) {
+                        CurrentUser currentUser,
+                        ApplicationEventPublisher events) {
         this.issueRepository = issueRepository;
         this.projectRepository = projectRepository;
         this.boardRepository = boardRepository;
@@ -64,6 +68,7 @@ public class IssueService implements IIssueService {
         this.userRepository = userRepository;
         this.issueMapper = issueMapper;
         this.currentUser = currentUser;
+        this.events = events;
     }
 
     @Override
@@ -108,7 +113,17 @@ public class IssueService implements IIssueService {
         project.setIssueCounter(next);
         issue.setIssueKey(project.getKey() + "-" + next);
 
-        return issueMapper.fromModel(issueRepository.saveAndFlush(issue));
+        Issue saved = issueRepository.saveAndFlush(issue);
+
+        // Announce it, so the classifier can read the ticket. This is a Spring event, not a broker
+        // call: IssueEventPublisher waits for the commit before anything reaches RabbitMQ, so a
+        // consumer can never be handed an id that is not visible yet or that gets rolled back.
+        // Keeping AMQP out of this class also means creating an issue does not wait on a broker.
+        events.publishEvent(new IssueCreatedEvent(
+                saved.getId(), saved.getIssueKey(), saved.getTitle(),
+                saved.getDescription(), project.getKey()));
+
+        return issueMapper.fromModel(saved);
     }
 
     @Override

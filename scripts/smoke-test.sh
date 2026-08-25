@@ -183,6 +183,58 @@ check "list attachments" 200 $BASE/issues/$IID/attachments
 check "attachment on wrong issue -> 404" 404 -X DELETE $BASE/issues/$I2/attachments/$AID
 check "delete attachment" 204 -X DELETE $BASE/issues/$IID/attachments/$AID
 
+echo "########## CLASSIFICATION ##########"
+# Creating an issue must return immediately: the classifier answers into a queue seconds later,
+# and the caller never waits for it.
+check "create an issue to classify" 201 -X POST $BASE/issues -H "$J" -d "{\"title\":\"Login page crashes with a 500 error\",\"description\":\"Broken in production, urgent, everyone affected.\",\"type\":\"TASK\",\"priority\":\"LOW\",\"projectId\":$PID,\"boardId\":$BID}"
+CLASSIFIED_ID=$(id_of)
+
+# Poll rather than sleep a fixed time: the queue is usually quicker than a guess would be.
+CLASSIFICATION_STATUS=000
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  CLASSIFICATION_STATUS=$(curl -s -o /dev/null -w '%{http_code}' \
+    -H "Authorization: Bearer $TOKEN" $BASE/issues/$CLASSIFIED_ID/classification)
+  [ "$CLASSIFICATION_STATUS" = "200" ] && break
+  sleep 2
+done
+if [ "$CLASSIFICATION_STATUS" = "200" ]; then
+  printf 'PASS  200  a suggestion arrived over the queue\n'; pass=$((pass+1))
+else
+  printf 'FAIL  got %s want 200  no suggestion arrived (is classification-service up?)\n' "$CLASSIFICATION_STATUS"; fail=$((fail+1))
+fi
+
+check "read the suggestion" 200 $BASE/issues/$CLASSIFIED_ID/classification
+expect_field "it says which model produced it" modelVersion "stub-v1"
+expect_field "it has not been reviewed yet" reviewStatus "PENDING"
+
+# 204 and not 404 while the classifier has not answered: the chip polls this, and 404 would mean
+# the URL is wrong rather than the answer not being ready.
+check "create a second issue" 201 -X POST $BASE/issues -H "$J" -d "{\"title\":\"Second\",\"type\":\"TASK\",\"priority\":\"LOW\",\"projectId\":$PID,\"boardId\":$BID}"
+SECOND_ID=$(id_of)
+check "classification of an unknown issue -> 404" 404 $BASE/issues/999999/classification
+
+check "accept the suggestion" 200 -X POST $BASE/issues/$CLASSIFIED_ID/classification/accept
+expect_field "accepting records it as confirmed" reviewStatus "CONFIRMED"
+# Accepting writes the suggested values onto the issue. The stub reads "crashes / 500 / broken"
+# as a bug, and "urgent / production / everyone" as critical.
+check "the issue took the suggested values" 200 $BASE/issues/$CLASSIFIED_ID
+expect_field "type was applied" type "BUG"
+expect_field "priority was applied" priority "CRITICAL"
+
+check "a decision is made once -> 422" 422 -X POST $BASE/issues/$CLASSIFIED_ID/classification/accept
+check "override the other one" 200 -X POST $BASE/issues/$SECOND_ID/classification/override
+expect_field "overriding records the disagreement" reviewStatus "OVERRIDDEN"
+
+echo "########## THE DEAD-LETTER QUEUE ##########"
+# Replaying puts real work back into the system, so it is an ADMIN action on the classifier.
+SAVED=$TOKEN; TOKEN=$DEV_TOKEN
+check_anon "dead letters need a token -> 401" 401 http://localhost:8083/admin/classification/dead-letters
+check "a developer cannot read them -> 403" 403 http://localhost:8083/admin/classification/dead-letters
+check "a developer cannot replay -> 403" 403 -X POST http://localhost:8083/admin/classification/replay
+TOKEN=$SAVED
+check "an admin can count them" 200 http://localhost:8083/admin/classification/dead-letters
+check "an admin can replay" 200 -X POST http://localhost:8083/admin/classification/replay
+
 echo "########## SPRINT COMPLETE + CASCADES ##########"
 check "complete sprint" 200 -X POST $BASE/sprints/$SID/complete
 check "complete again -> 422" 422 -X POST $BASE/sprints/$SID/complete

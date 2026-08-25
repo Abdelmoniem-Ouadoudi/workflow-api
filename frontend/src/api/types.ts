@@ -97,6 +97,36 @@ export interface IssueComment {
   updatedAt: string
 }
 
+export type Effort = 'SMALL' | 'MEDIUM' | 'LARGE'
+export type ReviewStatus = 'PENDING' | 'AUTO_APPLIED' | 'CONFIRMED' | 'OVERRIDDEN'
+
+/**
+ * What the model thought about one issue.
+ *
+ * Every suggested field is nullable: a model with no opinion returns nothing rather than guessing,
+ * and the chip renders that as an absent row instead of an empty one.
+ *
+ * `issueVersion` is the issue's optimistic-locking version at the time of reading. When a
+ * suggestion is auto-applied the issue really did change, so the board has to take this value or
+ * the next drag on that card sends a stale version and gets a false 409.
+ */
+export interface AIClassification {
+  id: number
+  issueId: number
+  suggestedType: IssueType | null
+  suggestedPriority: Priority | null
+  suggestedTeam: string | null
+  effortHint: Effort | null
+  sentimentScore: number | null
+  confidence: number
+  missingInfo: string[] | null
+  reviewStatus: ReviewStatus
+  /** Which model said this. `stub-v1` means keyword rules, not AI. */
+  modelVersion: string
+  issueVersion: number
+  createdAt: string
+}
+
 /** What POST /auth/register and POST /auth/login both return. */
 export interface TokenResponse {
   token: string

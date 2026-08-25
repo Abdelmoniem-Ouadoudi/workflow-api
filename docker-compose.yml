@@ -14,5 +14,29 @@ services:
       # so on an existing installation create it by hand once instead of wiping the data.
       - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
 
+  # The broker that makes classification asynchronous: creating an issue returns straight away
+  # and the AI answers into a queue seconds later.
+  rabbitmq:
+    # The -management tag is the point, not a convenience. The queues, their depth and the
+    # dead-letter queue are visible at http://localhost:15672 (workflow / workflow), so the
+    # failure story can be shown on screen instead of described.
+    image: rabbitmq:3-management
+    container_name: workflow-mq
+    environment:
+      RABBITMQ_DEFAULT_USER: workflow
+      RABBITMQ_DEFAULT_PASS: workflow
+    ports:
+      - "5672:5672"    # AMQP, what the services speak
+      - "15672:15672"  # the management UI
+    volumes:
+      - workflow_mqdata:/var/lib/rabbitmq
+    healthcheck:
+      # A service that connects before the broker is ready retries with a stack trace in the log.
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
 volumes:
   workflow_pgdata:
+  workflow_mqdata:

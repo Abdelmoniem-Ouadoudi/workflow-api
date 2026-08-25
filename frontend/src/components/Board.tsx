@@ -228,6 +228,10 @@ export function Board({ project, session, onLeave }: Props) {
           onClose={() => setOpenIssueId(null)}
           onAssigneeChanged={(assigneeId, version) => applyAssignee(openIssue.id, assigneeId, version)}
           onAssignFailed={(message) => setNotice({ tone: 'stop', message })}
+          // Accepting a suggestion writes the AI's values onto the issue, which bumps its
+          // version. Refetching is what stops the next drag on that card sending a stale one
+          // and getting a false 409.
+          onIssueChanged={() => void load()}
         />
       )}
     </main>

@@ -45,6 +45,12 @@ in the browser while curl saw a clean 200.
 is a duplicate waiting to happen. Decide which end owns each one. CORS and the correlation id are
 the gateway's.
 
+**Across the broker, as of M3.** The HTTP header stops at the queue, so the id is copied into a
+message header (`X-Correlation-Id`) on publish and read back into the MDC by every listener. A
+listener thread has no request behind it, so without that the classifier's logs would be the one
+place a trace goes dark. Both listeners clear the MDC in a `finally` block: the thread returns to
+a pool, and inheriting the previous message's id is worse than having none.
+
 **Why:** a request crosses Gateway → work-service → RabbitMQ → classification-service → back.
 Without one id tying those logs together, "why was this classification slow" is unanswerable.
 
@@ -55,10 +61,32 @@ Cost: a filter in the gateway, a filter in each service, one line in the logging
 
 ---
 
-## 2. Dead-letter queue on RabbitMQ — **M3**
+## 2. Dead-letter queue on RabbitMQ — **M3 · BUILT**
 
 **Build:** `issue.created` gets a DLQ with a bounded retry count. A message that fails N times
 goes to the dead-letter queue, not back onto the main queue.
+
+**Built as:** `issue.created.q` and `issue.classified.q` both carry `x-dead-letter-exchange:
+workflow.dlx`, with `spring.rabbitmq.listener.simple.default-requeue-rejected=false`. That property
+is the whole thing: its default is `true`, which puts a failed message straight back on the queue
+and retries it forever at full speed, so the DLQ stays empty while the system is stuck.
+
+Two failures, two treatments, decided in `ClassificationFailedException`:
+
+| Failure | Treatment |
+|---|---|
+| Groq 429 / 503 / timeout, database blip | retried 3× with backoff, then dead-lettered |
+| Groq 401, unparseable reply, message with no issue id | dead-lettered at once, no retry |
+
+Boot's `spring.rabbitmq.listener.simple.retry.*` properties cannot express the second row — they
+apply one policy to every exception. `ListenerRetryConfig` replaces them with an interceptor that
+excludes `AmqpRejectAndDontRequeueException`, so a permanent failure is not tried three times to
+prove what is already known. With a wrong API key that is three wasted calls per ticket.
+
+**And it is not a bin.** `GET /admin/classification/dead-letters` counts what is parked and
+`POST /admin/classification/replay` puts it back, both ADMIN-only. That is what makes the second
+half of M3's acceptance test real: pull the key, watch tickets still get created and their
+classifications park, restore the key, replay, watch the suggestions arrive.
 
 **Why:** `PROJECT.md` M3 covers "Groq key removed, tickets still get created". It does **not**
 cover "Groq key present but every call throws". Without a DLQ that message either requeues

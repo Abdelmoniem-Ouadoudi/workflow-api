@@ -36,20 +36,27 @@ workflow-api/
 ├── frontend/              ← React + Vite, dev server on 5173
 ├── scripts/smoke-test.sh  ← runs against the GATEWAY on 8090, not a service directly
 └── services/
-    ├── work-service/      ← Maven commands run from HERE, not the root
-    ├── discovery-service/ ← Eureka registry
-    ├── auth-service/      ← accounts, passwords, JWT
-    └── gateway/           ← the one address the browser knows
+    ├── work-service/           ← Maven commands run from HERE, not the root
+    ├── discovery-service/      ← Eureka registry
+    ├── auth-service/           ← accounts, passwords, JWT
+    ├── gateway/                ← the one address the browser knows
+    └── classification-service/ ← reads a ticket, suggests what it is
 ```
 
 Ports: work-service **8081**, discovery-service (Eureka) **8761**, auth-service **8082**,
-gateway **8090**, Postgres **5433**, Vite **5173**.
+classification-service **8083**, gateway **8090**, Postgres **5433**,
+RabbitMQ **5672** (management UI **15672**, workflow/workflow), Vite **5173**.
 8080 and 5432 are avoided because a local Apache and a local Postgres already use them.
 
 Databases: `workflow` (work-service) and `authdb` (auth-service), same Postgres process.
+classification-service has none — it consumes, calls a model, publishes, and forgets.
 
-**Start order:** discovery → work → auth → gateway. Registration takes up to ~30s to propagate;
-`http://localhost:8761` must list all three before the gateway can route.
+**Start order:** discovery → work → auth → classification → gateway. Registration takes up to
+~30s to propagate; `http://localhost:8761` must list all four before the gateway can route.
+
+**No Groq key?** `app.classification.provider` defaults to `stub`, which is keyword rules, not AI.
+It says so on startup and stamps `modelVersion=stub-v1` on every suggestion. For the real thing:
+set `GROQ_API_KEY`, then `CLASSIFICATION_PROVIDER=groq`.
 
 ## Source of truth
 - `docs/PROJECT.md` — milestones. Work ONLY on the current one.

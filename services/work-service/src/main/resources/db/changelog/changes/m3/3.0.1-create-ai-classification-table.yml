@@ -1,0 +1,98 @@
+databaseChangeLog:
+  - changeSet:
+      id: 3.0.1
+      author: abdelmoniem
+      comment: >
+        What the model thought about one issue. Composition in the class diagram
+        (Issue "1" *-- "0..1" AIClassification), so the row dies with its issue.
+        Every suggested column is nullable: a model with no opinion should say nothing
+        rather than guess. Only confidence is required, because it gates the rest.
+      changes:
+        - createTable:
+            tableName: ai_classification
+            columns:
+              - column:
+                  name: id
+                  type: bigint
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              # unique: one classification per issue at most. It is also what makes a duplicate
+              # delivery from RabbitMQ safe - the listener updates instead of inserting, and this
+              # is the backstop if two deliveries ever race.
+              - column:
+                  name: issue_id
+                  type: bigint
+                  constraints:
+                    nullable: false
+                    unique: true
+                    uniqueConstraintName: uk_ai_classification_issue
+                    foreignKeyName: fk_ai_classification_issue
+                    references: issue(id)
+                    deleteCascade: true
+              - column:
+                  name: suggested_type
+                  type: varchar(20)
+              - column:
+                  name: suggested_priority
+                  type: varchar(20)
+              # Free text, not a foreign key. There is no Team table: the model reads a team name
+              # out of the ticket, and constraining it to a list this system does not own would
+              # discard a correct answer whenever it named a team nobody had registered.
+              - column:
+                  name: suggested_team
+                  type: varchar(100)
+              - column:
+                  name: effort_hint
+                  type: varchar(20)
+              # -1.0 to 1.0. real, not numeric: this is a model's estimate, not money.
+              - column:
+                  name: sentiment_score
+                  type: real
+              - column:
+                  name: confidence
+                  type: real
+                  constraints:
+                    nullable: false
+              # A list of strings, read only ever with its parent row. A child table plus a join
+              # for something never queried on its own would be three files buying nothing.
+              - column:
+                  name: missing_info
+                  type: jsonb
+              - column:
+                  name: review_status
+                  type: varchar(20)
+                  defaultValue: PENDING
+                  constraints:
+                    nullable: false
+              # Which model said this. What tells you, months later, that a run of bad suggestions
+              # all came from one version - and what makes the keyword stub visible on screen.
+              - column:
+                  name: model_version
+                  type: varchar(60)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: created_at
+                  type: timestamp
+                  constraints:
+                    nullable: false
+              - column:
+                  name: updated_at
+                  type: timestamp
+                  constraints:
+                    nullable: false
+
+        # M4 computes the AI agreement rate by grouping on this column, and any "what is waiting
+        # for review" screen filters on it. Both are full scans without it.
+        - createIndex:
+            indexName: idx_ai_classification_review_status
+            tableName: ai_classification
+            columns:
+              - column:
+                  name: review_status
+
+      rollback:
+        - dropTable:
+            tableName: ai_classification

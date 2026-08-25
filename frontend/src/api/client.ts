@@ -1,5 +1,6 @@
 import { endSession, getSession, startSession } from '../auth/session'
 import type {
+  AIClassification,
   ApiErrorBody,
   Board,
   BoardView,
@@ -190,6 +191,23 @@ export const api = {
       `/issues/${issueId}/assignee${userId === null ? '' : `?userId=${userId}`}`,
       { method: 'PUT' },
     ),
+
+  /**
+   * The suggestion, or null while the classifier has not answered yet.
+   *
+   * The server says 204 for "not ready", which `request` turns into undefined. That is the state
+   * the chip polls on — a 404 would mean the URL is wrong, which is a different problem.
+   */
+  classification: (issueId: number) =>
+    request<AIClassification | undefined>(`/issues/${issueId}/classification`).then(
+      (found) => found ?? null,
+    ),
+
+  acceptClassification: (issueId: number) =>
+    request<AIClassification>(`/issues/${issueId}/classification/accept`, { method: 'POST' }),
+
+  overrideClassification: (issueId: number) =>
+    request<AIClassification>(`/issues/${issueId}/classification/override`, { method: 'POST' }),
 
   listComments: (issueId: number) => request<IssueComment[]>(`/issues/${issueId}/comments`),
 

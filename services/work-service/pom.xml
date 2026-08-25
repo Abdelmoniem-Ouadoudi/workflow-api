@@ -61,6 +61,15 @@
 			<groupId>org.springframework.cloud</groupId>
 			<artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
 		</dependency>
+		<!--
+			Publishes issue.created and consumes issue.classified. This is what makes creating an
+			issue return immediately: the AI answers into a queue seconds later instead of the
+			caller waiting for it.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-amqp</artifactId>
+		</dependency>
 
 		<dependency>
 			<groupId>org.postgresql</groupId>

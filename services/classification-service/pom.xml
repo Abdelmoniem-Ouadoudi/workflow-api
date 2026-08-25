@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	<parent>
+		<groupId>org.springframework.boot</groupId>
+		<artifactId>spring-boot-starter-parent</artifactId>
+		<version>4.0.7</version>
+		<relativePath/>
+	</parent>
+	<groupId>ma.dev</groupId>
+	<artifactId>classification-service</artifactId>
+	<version>0.0.1-SNAPSHOT</version>
+	<name>classification-service</name>
+	<description>Reads a ticket and suggests what it is</description>
+
+	<properties>
+		<java.version>21</java.version>
+		<spring-cloud.version>2025.1.1</spring-cloud.version>
+		<!-- 2.0.x is the line that supports Boot 4.0.x and 4.1.x. Spring AI 1.x is Boot 3 only. -->
+		<spring-ai.version>2.0.1</spring-ai.version>
+	</properties>
+
+	<dependencies>
+		<!--
+			Groq speaks OpenAI's protocol, so the OpenAI starter IS the Groq client. There is no
+			Groq-specific library and none is needed: only the base URL changes.
+		-->
+		<dependency>
+			<groupId>org.springframework.ai</groupId>
+			<artifactId>spring-ai-starter-model-openai</artifactId>
+		</dependency>
+		<!-- Consumes issue.created, publishes issue.classified. The service's whole input and output. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-amqp</artifactId>
+		</dependency>
+		<!--
+			There is no controller worth the name here - this is a queue worker. Web is on the
+			classpath for actuator's health endpoint and for the admin replay route, which is what
+			makes the dead-letter queue operable instead of just observable.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-webmvc</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-actuator</artifactId>
+		</dependency>
+		<!--
+			Verifies the same token the other three services do. Replaying a dead-letter queue has
+			real effects, so it is an ADMIN action, not a URL anyone who guesses the path can hit.
+			This service only ever verifies a token; it never issues one.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-security</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+		</dependency>
+		<!-- Retry and circuit breaker around the Groq call: it is external and it is flaky. -->
+		<dependency>
+			<groupId>org.springframework.cloud</groupId>
+			<artifactId>spring-cloud-starter-circuitbreaker-resilience4j</artifactId>
+		</dependency>
+		<!--
+			Registers with Eureka. Nothing calls this service synchronously at M3 - it is driven
+			entirely by the queue - but the architecture diagram has it in the registry, and M4's
+			similarity search is a synchronous route through the gateway that will need it.
+		-->
+		<dependency>
+			<groupId>org.springframework.cloud</groupId>
+			<artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.projectlombok</groupId>
+			<artifactId>lombok</artifactId>
+			<optional>true</optional>
+		</dependency>
+
+		<!--
+			No database. This service consumes, calls a model, publishes and forgets - the
+			AIClassification row belongs to work-service, next to the issue it describes. Holding
+			no state is also why more than one of these could run.
+		-->
+
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-webmvc-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+	</dependencies>
+
+	<dependencyManagement>
+		<dependencies>
+			<dependency>
+				<groupId>org.springframework.cloud</groupId>
+				<artifactId>spring-cloud-dependencies</artifactId>
+				<version>${spring-cloud.version}</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+			<dependency>
+				<groupId>org.springframework.ai</groupId>
+				<artifactId>spring-ai-bom</artifactId>
+				<version>${spring-ai.version}</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+		</dependencies>
+	</dependencyManagement>
+
+	<build>
+		<plugins>
+			<plugin>
+				<groupId>org.springframework.boot</groupId>
+				<artifactId>spring-boot-maven-plugin</artifactId>
+			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-compiler-plugin</artifactId>
+				<configuration>
+					<annotationProcessorPaths>
+						<path>
+							<groupId>org.projectlombok</groupId>
+							<artifactId>lombok</artifactId>
+						</path>
+					</annotationProcessorPaths>
+				</configuration>
+			</plugin>
+		</plugins>
+	</build>
+</project>

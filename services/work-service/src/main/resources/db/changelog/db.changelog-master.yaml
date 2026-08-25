@@ -17,3 +17,7 @@ databaseChangeLog:
       file: db/changelog/changes/m1/1.0.9-create-issue-attachment-table.yml
   - include:
       file: db/changelog/changes/m1/1.1.1-seed-default-user.yml
+  # M3. There is no m2 folder here: M2's only table was the credential, and that lives in authdb
+  # with auth-service. The folder is named for the milestone, not for a continuous sequence.
+  - include:
+      file: db/changelog/changes/m3/3.0.1-create-ai-classification-table.yml

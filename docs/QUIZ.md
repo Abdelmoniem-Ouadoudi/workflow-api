@@ -570,3 +570,206 @@ combines two sets of response headers, so any header both ends set is a duplicat
 happen, and the only headers that matter here are the ones the browser reads and no test client
 does.
 
+
+---
+
+# M3 â€” AI classification, asynchronously
+
+## Why classification-service has no database
+
+It consumes a message, calls a model, publishes the answer, and forgets. The `AIClassification`
+row is written by work-service, next to the issue it describes â€” composition in the class diagram
+(`Issue "1" *-- "0..1" AIClassification`), which is `ON DELETE CASCADE` in the schema.
+
+The payoff is that this service holds no state, so you could run five of them behind the same queue
+and nothing would have to change. A classifier with its own database would need the issue copied
+into it, and then two copies of the same ticket could disagree.
+
+## Why `issue.created` is published after the transaction commits, not inside it
+
+`IssueService.create` publishes a plain Spring event; `IssueEventPublisher` listens with
+`@TransactionalEventListener(phase = AFTER_COMMIT)` and only then sends to RabbitMQ.
+
+Publishing inside the transaction would let the classifier receive an issue id that is not visible
+to anyone else yet â€” or worse, one from a transaction that then rolled back, producing a
+classification for a ticket that never existed.
+
+It also keeps AMQP out of the service class: `IssueService` does not know a broker exists, which is
+why creating an issue does not wait for one.
+
+## The gap in that, said out loud
+
+Commit and publish are still two steps. A crash in between loses the message and the issue is never
+classified. That is the same dual-write problem as registration at M2, and the same real answer: a
+transactional outbox.
+
+What makes it survivable is worth stating: an unclassified issue is **degraded, not corrupt**. The
+ticket exists, the board shows it, someone can work it. `PROJECT.md` says as much â€” the issue exists
+whether or not it gets classified. The failed publish is logged with the issue key so it can be
+found. `BACKLOG.md`.
+
+## Two layers of failure handling, and why one is not enough
+
+- **Resilience4j** wraps the Groq call. It is for a call that would probably work if tried again:
+  a 429, a 503, a timeout. The circuit breaker matters more than the retry â€” once Groq is failing,
+  further calls fail instantly instead of each one waiting for its own timeout, which is what stops
+  an outage from tying up every listener thread the service has.
+- **RabbitMQ retry, then the dead-letter queue** is for a *message*. After the retries, it is parked
+  so one bad ticket cannot block classification for everyone else.
+
+Protecting only one of them is the mistake. A perfect breaker still leaves a poison message looping
+forever; a perfect DLQ still lets a Groq outage exhaust the thread pool.
+
+## The one property that decides whether a DLQ works at all
+
+`spring.rabbitmq.listener.simple.default-requeue-rejected=false`.
+
+Its default is **true**, which puts a failed message straight back on the queue and retries it
+immediately, forever. The queue never drains, the dead-letter queue stays empty, and nothing
+anywhere reports a problem. It is the single most common way a dead-letter queue is configured
+perfectly and does nothing.
+
+## Why the retry policy is written in Java instead of properties
+
+`spring.rabbitmq.listener.simple.retry.*` applies one policy to every exception. The distinction
+that matters cannot be expressed there: a rate limit deserves three attempts with backoff, while a
+rejected API key or a message with no issue id should be parked immediately.
+
+`ListenerRetryConfig` builds the interceptor with
+`excludes(AmqpRejectAndDontRequeueException.class)` â€” the exception the listener throws once it has
+decided a failure is permanent. Before that, a wrong Groq key cost three failed API calls per
+ticket to prove twice more what was already known.
+
+`ClassificationFailedException` carries the decision as a single `permanent` boolean, made where the
+cause is known rather than guessed at later.
+
+## Why a dead letter is parked, not binned
+
+`GET /admin/classification/dead-letters` counts them; `POST /admin/classification/replay` puts them
+back. Both ADMIN-only, on the same JWT as everything else.
+
+A queue you can only fall into is a bin. Everything in there failed for a reason that was true at
+the time â€” a missing key, an outage â€” and when the reason goes away the work is still worth doing.
+This is what makes the second half of M3's acceptance test demonstrable rather than asserted:
+remove the key, watch tickets still get created and their classifications park, restore the key,
+replay, watch the suggestions arrive.
+
+## Why replay moves the raw message instead of re-serializing it
+
+Two reasons, and the first was a bug before it was a principle.
+
+`receiveAndConvert` has no idea what type to produce outside a listener â€” a `@RabbitListener` gets
+that from its method signature, a bare receive does not â€” so the JSON came back as a
+`LinkedHashMap` and the cast threw a `ClassCastException`. The smoke test caught it.
+
+The better fix was not a type hint but moving the raw `Message`: the body goes back byte-identical
+and **the headers survive**, including the correlation id. A replayed message stays attached to the
+request that originally created the issue, which is precisely when someone is trying to work out
+what happened.
+
+## How the correlation id survives the broker
+
+An HTTP header stops at the queue. The id is copied into a message header on publish and read back
+into the MDC by every listener, so one grep still covers the gateway, work-service and the
+classifier after the hop. `ARCHITECTURE-NOTES.md` Â§1 asked for exactly this at M2 and it came due
+here.
+
+Both listeners clear the MDC in a `finally`. A listener thread returns to a pool, and inheriting the
+previous message's id is worse than having no id at all â€” it attributes one request's work to
+another.
+
+## Why the auto-apply threshold is 0.85, and why it is in config
+
+Above it, the suggestion is written onto the issue with nobody watching; below it, it waits for a
+person.
+
+It is high on purpose. A wrong auto-apply means somebody quietly works the wrong ticket at the wrong
+priority; not applying costs one click. The asymmetry says the number should be high.
+
+It is a property rather than a constant because it is a **policy, not a fact** â€” a team that finds
+the model too eager lowers it without a rebuild.
+
+The confidence is also clamped to 0..1 on arrival. A model returning 1.4 would otherwise auto-apply
+everything.
+
+## Why the same classification arriving twice is harmless
+
+RabbitMQ guarantees at-least-once delivery, so a message can arrive again after a network hiccup or
+a redelivery.
+
+The listener looks the row up by `issue_id` and updates it if it is there, so a redelivery
+overwrites instead of colliding. The unique constraint on `issue_id` is the backstop, not the
+strategy â€” relying on it alone would send every duplicate to the dead-letter queue as a constraint
+violation.
+
+## Why only type and priority are applied to the issue
+
+The model suggests five things. `Issue` has fields for two of them.
+
+Team, effort and sentiment have nowhere to go â€” the class diagram gives `Issue` no such fields â€” so
+they stay as evidence rather than being invented onto the entity. M4's dashboard reads them for team
+load and distribution.
+
+Status is never suggested at all. An issue is born `TO_DO` and only the transition map moves it;
+letting a model skip that would make the workflow rules negotiable.
+
+## Why the suggestion endpoint answers 204 and not 404 while it is waiting
+
+The chip polls `GET /issues/{id}/classification` every two seconds. A 404 means "no such URL", and a
+client cannot tell that apart from a typo in the path or a service that was never deployed. 204 says
+the URL is right and the answer is not here yet, which is a different thing and the only honest one
+while a queue is still working.
+
+The chip gives up after 30 seconds and says "no suggestion came back" with a retry, rather than
+spinning forever. A suggestion that never arrives usually means the message is parked in the DLQ,
+and a spinner that never stops is a lie about that.
+
+## Why there is a stub classifier, and why it cannot be mistaken for the real thing
+
+The whole pipeline â€” queue, retry, dead-letter queue, persistence, endpoints, UI â€” can be built and
+demonstrated on a machine with no API key. The classifier is an interface with two implementations
+chosen by `app.classification.provider`.
+
+A stub that could pass for AI would be the worst thing to discover mid-defence, so it says what it
+is three ways: a warning block on startup, `modelVersion=stub-v1` stored on every row it produces,
+and that version printed on the chip in the UI. The screen itself says `stub-v1`.
+
+`@ConditionalOnProperty` rather than a Spring profile, because a property shows up in
+`/actuator/env` and in the startup log, where a profile is a word on a command line nobody remembers
+typing.
+
+## Why the OpenAI starter is the Groq client
+
+Groq speaks OpenAI's protocol. Only the base URL differs, so there is no Groq library, and adding
+one would be a dependency that does nothing.
+
+Temperature is 0.2 rather than the default 0.8: this is a classification, and the same ticket should
+get the same answer twice. Creativity is the opposite of what is wanted.
+
+The output shape is never written into the prompt by hand. Spring AI derives the JSON schema from
+the `Suggestion` record and its `@JsonPropertyDescription` annotations, so the record and the prompt
+cannot drift apart â€” renaming a field there changes what the model is asked for.
+
+## The RabbitAdmin bug: queues that exist in Java and not on the broker
+
+Declaring a `RabbitTemplate` bean makes Spring Boot's whole AMQP auto-configuration block back off,
+and its `RabbitAdmin` lives in that same block. Losing it is quiet in the worst way: `RabbitAdmin` is
+what walks the `Queue`, `Exchange` and `Binding` beans and actually creates them on the broker.
+Without it they are objects in a context that never reach RabbitMQ, and the first symptom is a
+listener waiting on a queue that does not exist.
+
+Both services now declare `RabbitAdmin` explicitly.
+
+## Why the message is not the DTO
+
+`IssueCreatedEvent` carries `issueId`, `issueKey`, `title`, `description`, `projectKey` â€” not
+`IssueDTO`.
+
+A DTO exists to serve the React app and changes whenever a screen changes. This is a contract with
+another service. Sending the DTO would mean a field added for a form quietly becomes part of an
+integration nobody re-read.
+
+The consumer's copy is annotated `@JsonIgnoreProperties(ignoreUnknown = true)`, which is the
+versioning strategy: work-service can add a field without the classifier being redeployed first.
+Without it, one new field on the producer would send every message to the dead-letter queue.
+

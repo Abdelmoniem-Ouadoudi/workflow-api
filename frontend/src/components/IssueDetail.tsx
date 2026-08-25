@@ -4,6 +4,7 @@ import { ApiError, api } from '../api/client'
 import type { IssueComment, IssueSummary, Status, User } from '../api/types'
 import { STATUS_LABEL } from '../api/types'
 import type { Session } from '../auth/session'
+import { SuggestionChip } from './SuggestionChip'
 
 const timeFormatter = new Intl.DateTimeFormat(undefined, {
   month: 'short',
@@ -19,6 +20,8 @@ interface Props {
   onClose: () => void
   onAssigneeChanged: (assigneeId: number | null, version: number) => void
   onAssignFailed: (message: string) => void
+  /** The AI changed the issue itself, so the board must drop its cached copy. */
+  onIssueChanged: () => void
 }
 
 /**
@@ -33,6 +36,7 @@ export function IssueDetail({
   onClose,
   onAssigneeChanged,
   onAssignFailed,
+  onIssueChanged,
 }: Props) {
   const [comments, setComments] = useState<IssueComment[] | null>(null)
   const [draft, setDraft] = useState('')
@@ -157,6 +161,10 @@ export function IssueDetail({
         </div>
 
         {error && <p className="drawer__error">{error}</p>}
+
+        {/* What the AI made of this ticket. It arrives over a queue seconds after the issue is
+            created, so this polls rather than expecting it to be there already. */}
+        <SuggestionChip issueId={issue.id} onIssueChanged={onIssueChanged} />
 
         <div className="drawer__field">
           <label className="drawer__label" htmlFor="assignee">

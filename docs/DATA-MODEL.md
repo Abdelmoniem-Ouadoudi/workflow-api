@@ -6,13 +6,13 @@ Since M2 there are **two databases**, both in the same Postgres process on 5433:
 
 | Database | Owner | Holds |
 |---|---|---|
-| `workflow` | work-service | 7 business tables — projects, boards, sprints, issues, comments, attachments, people |
+| `workflow` | work-service | 8 business tables — projects, boards, sprints, issues, comments, attachments, people, AI classifications |
 | `authdb` | auth-service | 1 table — `account`, the credentials |
 
 Each has its own Liquibase changelog and its own connection. Nothing can join across them, and
 that is the point rather than a limitation: see `account` at the end of this file.
 
-`ai_classification` arrives at M3 and is not here yet.
+All eight business tables are here. `ai_classification` arrived at M3.
 
 ---
 
@@ -30,6 +30,7 @@ erDiagram
     APP_USER  ||--o{ ISSUE_COMMENT    : "writes"
     ISSUE     ||--o{ ISSUE_COMMENT    : "has"
     ISSUE     ||--o{ ISSUE_ATTACHMENT : "has"
+    ISSUE     ||--o| AI_CLASSIFICATION : "is assessed by"
 ```
 
 Read the symbols as: `||` exactly one, `|o` zero or one, `o{` zero or more.
@@ -279,6 +280,51 @@ stores a path and nothing more. Multipart upload of the bytes is still open in
 
 ---
 
+# ai_classification
+### database `workflow` — added at M3
+
+What the model thought about one issue.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | bigint | primary key |
+| `issue_id` | bigint | not null, **unique**, FK → `issue` `ON DELETE CASCADE` |
+| `suggested_type` | varchar(20) | nullable — `BUG`, `FEATURE`, `SUPPORT`, `TASK` |
+| `suggested_priority` | varchar(20) | nullable — `LOW` … `CRITICAL` |
+| `suggested_team` | varchar(100) | nullable, free text |
+| `effort_hint` | varchar(20) | nullable — `SMALL`, `MEDIUM`, `LARGE` |
+| `sentiment_score` | real | −1.0 angry … 1.0 pleased |
+| `confidence` | real | not null, 0.0 … 1.0 |
+| `missing_info` | jsonb | a list of strings |
+| `review_status` | varchar(20) | not null — `PENDING`, `AUTO_APPLIED`, `CONFIRMED`, `OVERRIDDEN` |
+| `model_version` | varchar(60) | not null — which model said it |
+| `created_at` / `updated_at` | timestamp | not null |
+
+Indexed on `review_status`, because M4's AI agreement rate groups by it.
+
+**It lives in work-service's database, not the classifier's.** The class diagram says
+`Issue "1" *-- "0..1" AIClassification` — composition, so the suggestion is part of the issue's
+record and dies with it, which is the `ON DELETE CASCADE`. It also leaves classification-service
+holding no state at all, which is why more than one of it could run.
+
+**Every suggested column is nullable, and that is the design.** A model with no opinion about the
+priority should return nothing rather than guess. Only `confidence` is required, because it is what
+decides whether any of the others get acted on.
+
+**`issue_id` is unique for a working reason, not a modelling one.** RabbitMQ delivers at least
+once, so the same classification can arrive twice. The listener looks the row up by issue id and
+updates it; this constraint is the backstop if two deliveries ever race.
+
+**`suggested_team` is free text and not a foreign key.** There is no Team table. The model reads a
+team name out of the ticket's language, and constraining it to a list this system does not own
+would throw away a correct answer whenever it named a real team nobody had registered.
+
+**Three of these columns are never applied to anything.** `suggested_team`, `effort_hint` and
+`sentiment_score` have no counterpart on `issue`, and the class diagram does not give it any. They
+are evidence rather than values: M4's dashboard reads them for team load and distribution.
+
+---
+
 # account
 ### database `authdb`, owned by auth-service — added at M2
 
@@ -332,6 +378,7 @@ These survive even if someone connects with pgAdmin and writes SQL by hand:
 | no orphan boards, sprints, issues, comments, attachments | `NOT NULL` foreign keys |
 | a reporter or comment author cannot be deleted | `ON DELETE RESTRICT` |
 | one login per username, one login per profile | `UNIQUE (username)`, `UNIQUE (work_user_id)` on `account` |
+| at most one AI classification per issue | `UNIQUE (issue_id)` on `ai_classification` |
 
 # Rules only the code enforces
 
