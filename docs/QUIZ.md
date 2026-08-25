@@ -1055,3 +1055,75 @@ The JWT test called `decoded.getIssuer()`, which insists on a URL, while this is
 name `auth-service`. Read as a string instead. That is fine — the resource servers compare it as a
 string too — but it is worth knowing before somebody "fixes" the issuer into a URL and breaks three
 services.
+
+---
+
+# Running against the real Groq
+
+## The model name in every tutorial does not exist on Groq
+
+`llama-3.3-70b-versatile` was the configured default for two milestones. It is not in Groq's
+catalogue at all. The mistake was invisible until there was a key to try it with, which is the
+whole hazard of a dependency you cannot exercise.
+
+`GET /v1/models` with the key is the authoritative list. The chat models are `openai/gpt-oss-120b`,
+`openai/gpt-oss-20b` and `qwen/qwen3.6-27b`.
+
+## Why 120b and not 20b
+
+Measured, on a ticket reading *"Production is broken, urgent, everyone affected... I am furious"*:
+
+| | type | priority | sentiment |
+|---|---|---|---|
+| `gpt-oss-20b` | BUG | CRITICAL | **+0.8** |
+| `gpt-oss-120b` | BUG | CRITICAL | **−0.9** |
+
+Both read the type and the priority correctly. 20b read an outage as *cheerful* — it got the sign
+backwards on the one field that needs actual reading comprehension. 120b costs about 350ms more,
+which is nothing on an answer nobody is waiting for.
+
+## Why reasoning effort is set to low
+
+The gpt-oss models reason before answering, and that reasoning is billed. Same ticket, same model:
+
+| effort | output tokens | answer |
+|---|---|---|
+| default | 306 | BUG / CRITICAL / −0.90 |
+| **low** | **80** | BUG / CRITICAL / −0.92 |
+
+Identical judgement for a quarter of the tokens. Triage does not reward deep reasoning; it rewards
+reading, which the model does either way.
+
+It is not a micro-optimisation. **Groq's free tier allows 8000 tokens per minute.** At 306 tokens a
+ticket, a handful filed together exhausts it — the smoke test did exactly that and drove real 429s.
+At 80 it takes four times as many.
+
+## What the rate limit proved
+
+The 429s were not a setback. They were the first time the resilience design met a real failure
+instead of a simulated one, and every layer did what it was built to do:
+
+- `RateLimitException` was classified as **transient**, not permanent — so the tickets were retried
+  rather than discarded. That classification is the one that was silently wrong at M3 and is now
+  covered by `GroqFailureRoutingTest`.
+- Resilience4j retried with backoff, and the circuit breaker opened rather than letting every
+  listener thread sit waiting.
+- One message that outlived its retries landed in the dead-letter queue, where it could be replayed
+  once the limit reset. Nothing was lost.
+- Every ticket was still created. The API returned in ~240ms throughout, because classification was
+  never on that path.
+
+The honest summary for a jury: *the free tier rate-limited us during testing, the tickets were
+still created, the classifications retried and the one that could not be retried was parked and
+replayed.* That is the design working, and it is worth more than a demo where nothing ever fails.
+
+## Why the smoke test no longer asserts `stub-v1` or `PENDING`
+
+Those two assertions passed for four milestones because the stub was the only classifier. Against
+the real model they failed — it reports its own name, and it is confident enough to auto-apply.
+
+Both were the *test* being wrong, not the code: the assertions had encoded one provider's behaviour
+as if it were the contract. They now assert that a model version is present at all, and that the
+review status is one of the two outcomes a fresh classification can legitimately have. The
+accept test captures whatever was suggested and checks that those values reached the issue, rather
+than pinning one model's judgement.

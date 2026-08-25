@@ -57,7 +57,16 @@ Databases, all in one Postgres process (image `pgvector/pgvector:pg16` since M4)
 
 **No Groq key?** `app.classification.provider` defaults to `stub`, which is keyword rules, not AI.
 It says so on startup and stamps `modelVersion=stub-v1` on every suggestion. For the real thing:
-set `GROQ_API_KEY`, then `CLASSIFICATION_PROVIDER=groq`.
+
+```
+$env:GROQ_API_KEY = "gsk_..."        # never in a file
+$env:CLASSIFICATION_PROVIDER = "groq"
+```
+
+Model is `openai/gpt-oss-120b` with `reasoning-effort=low`. `llama-3.3-70b-versatile` is NOT on
+Groq — check `GET /v1/models` before believing any tutorial. The free tier allows **8000 tokens
+per minute**; a burst of tickets exceeds it, the 429s retry, and anything that outlives its
+retries parks in the DLQ for replay.
 
 **Embeddings need no key.** `all-MiniLM-L6-v2` runs in-process as ONNX — Groq has no embeddings
 endpoint. The **first** start of classification-service downloads ~80MB and looks like a hang;

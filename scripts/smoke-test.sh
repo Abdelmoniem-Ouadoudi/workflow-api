@@ -47,6 +47,32 @@ expect_field() {
   fi
 }
 
+# expect_field_set <name> <json field> - asserts the field is present and not empty, without
+# pinning its value. Used where the answer legitimately depends on which classifier is running.
+expect_field_set() {
+  local name="$1"; local field="$2"
+  local got
+  got=$(echo "$LAST" | python -c "import sys,json;print(json.load(sys.stdin).get('$field') or '')")
+  if [ -n "$got" ]; then
+    printf 'PASS  --   %s (%s)\n' "$name" "$got"; pass=$((pass+1))
+  else
+    printf 'FAIL  %s was empty  %s\n' "$field" "$name"; fail=$((fail+1))
+  fi
+}
+
+# expect_field_one_of <name> <json field> <value> [value...]
+expect_field_one_of() {
+  local name="$1"; local field="$2"; shift 2
+  local got
+  got=$(echo "$LAST" | python -c "import sys,json;print(json.load(sys.stdin).get('$field'))")
+  for want in "$@"; do
+    if [ "$got" = "$want" ]; then
+      printf 'PASS  --   %s (%s)\n' "$name" "$got"; pass=$((pass+1)); return
+    fi
+  done
+  printf 'FAIL  got %s want one of [%s]  %s\n' "$got" "$*" "$name"; fail=$((fail+1))
+}
+
 id_of()    { echo "$LAST" | python -c "import sys,json;print(json.load(sys.stdin)['id'])"; }
 token_of() { echo "$LAST" | python -c "import sys,json;print(json.load(sys.stdin)['token'])"; }
 uid_of()   { echo "$LAST" | python -c "import sys,json;print(json.load(sys.stdin)['userId'])"; }
@@ -204,8 +230,14 @@ else
 fi
 
 check "read the suggestion" 200 $BASE/issues/$CLASSIFIED_ID/classification
-expect_field "it says which model produced it" modelVersion "stub-v1"
-expect_field "it has not been reviewed yet" reviewStatus "PENDING"
+# Not pinned to a value. It reads "stub-v1" with no API key and the model's own name with one, and
+# both are correct - what matters is that every suggestion says who produced it, so a bad run can
+# be traced to a model later.
+expect_field_set "it says which model produced it" modelVersion
+# Both outcomes are the feature working. The stub is deliberately unsure and waits for a person;
+# a real model that clears the 0.85 threshold applies itself, which is the whole point of having
+# a threshold. Pinning this to PENDING only passed because the stub was the only classifier.
+expect_field_one_of "it recorded a review outcome" reviewStatus "PENDING" "AUTO_APPLIED"
 
 # 204 and not 404 while the classifier has not answered: the chip polls this, and 404 would mean
 # the URL is wrong rather than the answer not being ready.
@@ -215,11 +247,14 @@ check "classification of an unknown issue -> 404" 404 $BASE/issues/999999/classi
 
 check "accept the suggestion" 200 -X POST $BASE/issues/$CLASSIFIED_ID/classification/accept
 expect_field "accepting records it as confirmed" reviewStatus "CONFIRMED"
-# Accepting writes the suggested values onto the issue. The stub reads "crashes / 500 / broken"
-# as a bug, and "urgent / production / everyone" as critical.
+# What the classifier actually suggested, whichever classifier is running. Asserting fixed values
+# here would be asserting one model's judgement; the behaviour being tested is that accepting
+# moves the suggestion onto the issue, and that is true of any suggestion.
+SUGGESTED_TYPE=$(echo "$LAST" | python -c "import sys,json;print(json.load(sys.stdin).get('suggestedType') or '')")
+SUGGESTED_PRIORITY=$(echo "$LAST" | python -c "import sys,json;print(json.load(sys.stdin).get('suggestedPriority') or '')")
 check "the issue took the suggested values" 200 $BASE/issues/$CLASSIFIED_ID
-expect_field "type was applied" type "BUG"
-expect_field "priority was applied" priority "CRITICAL"
+[ -n "$SUGGESTED_TYPE" ] && expect_field "the suggested type was applied" type "$SUGGESTED_TYPE"
+[ -n "$SUGGESTED_PRIORITY" ] && expect_field "the suggested priority was applied" priority "$SUGGESTED_PRIORITY"
 
 check "a decision is made once -> 422" 422 -X POST $BASE/issues/$CLASSIFIED_ID/classification/accept
 check "override the other one" 200 -X POST $BASE/issues/$SECOND_ID/classification/override
