@@ -25,4 +25,13 @@ public interface IIssueService {
     IssueDTO assign(Long id, Long userId);
 
     void deleteById(Long id);
+
+    /**
+     * Republishes the creation event for every issue, so the classifier re-reads and re-embeds
+     * them all.
+     *
+     * @return how many were queued. The work itself happens on the other side of the broker, so
+     *         this returns as soon as the messages are sent, not when they are done.
+     */
+    int reindexAll();
 }

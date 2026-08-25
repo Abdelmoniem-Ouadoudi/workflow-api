@@ -3,12 +3,17 @@ import type { FormEvent } from 'react'
 import { ApiError, api } from '../api/client'
 import type { IssueType, Priority } from '../api/types'
 import { ISSUE_TYPES, PRIORITIES } from '../api/types'
+import { DuplicatePanel } from './DuplicatePanel'
 
 interface Props {
   projectId: number
+  /** Scopes the duplicate check. A duplicate in another project is not a duplicate. */
+  projectKey: string
   boardId: number
   onCreated: () => void
   onFailed: (message: string) => void
+  /** Opens an existing ticket, when the duplicate panel finds the one being retyped. */
+  onOpenExisting: (issueId: number) => void
 }
 
 /**
@@ -16,7 +21,14 @@ interface Props {
  * was never real — it was a way to file work under someone else's name. One fewer control, and
  * one fewer thing that could be wrong.
  */
-export function NewIssueForm({ projectId, boardId, onCreated, onFailed }: Props) {
+export function NewIssueForm({
+  projectId,
+  projectKey,
+  boardId,
+  onCreated,
+  onFailed,
+  onOpenExisting,
+}: Props) {
   const [title, setTitle] = useState('')
   const [type, setType] = useState<IssueType>('TASK')
   const [priority, setPriority] = useState<Priority>('MEDIUM')
@@ -85,6 +97,10 @@ export function NewIssueForm({ projectId, boardId, onCreated, onFailed }: Props)
       <button className="button" type="submit" disabled={saving}>
         {saving ? 'Adding…' : 'Add issue'}
       </button>
+
+      {/* Full width under the row, so a match is read before the button is pressed rather than
+          squeezed beside it. Renders nothing at all when there is no match. */}
+      <DuplicatePanel text={title} projectKey={projectKey} onOpen={onOpenExisting} />
     </form>
   )
 }

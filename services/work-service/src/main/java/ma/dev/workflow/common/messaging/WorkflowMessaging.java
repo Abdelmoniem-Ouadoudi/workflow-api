@@ -29,6 +29,23 @@ public final class WorkflowMessaging {
     /** classification-service publishes this once the model has answered. */
     public static final String ISSUE_CLASSIFIED_KEY = "issue.classified";
 
+    /**
+     * M4. Published when an issue is deleted, so the classifier forgets its vector.
+     *
+     * <p>The classification row disappears with the issue through ON DELETE CASCADE. The vector
+     * lives in another database and has no foreign key to cascade along, so it has to be told.
+     */
+    public static final String ISSUE_DELETED_KEY = "issue.deleted";
+
+    /**
+     * M4. Published when a project is deleted, taking all its issues with it.
+     *
+     * <p>Separate from {@code issue.deleted} because a cascade is one act, not a hundred: deleting
+     * a project removes its issues through ON DELETE CASCADE without IssueService ever running, so
+     * nothing would announce them one by one.
+     */
+    public static final String PROJECT_DELETED_KEY = "project.deleted";
+
     /** Consumed by classification-service. */
     public static final String ISSUE_CREATED_QUEUE = "issue.created.q";
 

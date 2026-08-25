@@ -2,8 +2,11 @@ package ma.dev.workflow.classification.classify;
 
 import ma.dev.workflow.classification.classify.dto.IssueClassified;
 import ma.dev.workflow.classification.classify.dto.IssueCreated;
+import ma.dev.workflow.classification.classify.dto.IssueDeleted;
+import ma.dev.workflow.classification.classify.dto.ProjectDeleted;
 import ma.dev.workflow.classification.classify.dto.Suggestion;
 import ma.dev.workflow.classification.common.messaging.WorkflowMessaging;
+import ma.dev.workflow.classification.similarity.IssueVectorIndex;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -31,10 +34,52 @@ public class ClassificationListener {
 
     private final Classifier classifier;
     private final RabbitTemplate rabbitTemplate;
+    private final IssueVectorIndex index;
 
-    public ClassificationListener(Classifier classifier, RabbitTemplate rabbitTemplate) {
+    public ClassificationListener(Classifier classifier, RabbitTemplate rabbitTemplate,
+                                  IssueVectorIndex index) {
         this.classifier = classifier;
         this.rabbitTemplate = rabbitTemplate;
+        this.index = index;
+    }
+
+    /**
+     * An issue was deleted, so forget it.
+     *
+     * <p>Its classification went with it through {@code ON DELETE CASCADE}, but a vector in another
+     * database has no foreign key to cascade along. Left alone, the duplicate panel would keep
+     * offering tickets that no longer exist — the failure would be silent and would get worse.
+     */
+    @RabbitListener(queues = WorkflowMessaging.ISSUE_DELETED_QUEUE)
+    public void onIssueDeleted(IssueDeleted event,
+                               @Header(name = WorkflowMessaging.CORRELATION_HEADER, required = false)
+                               String correlationId) {
+        MDC.put(MDC_KEY, correlationId == null ? "no-corr-id" : correlationId);
+        try {
+            index.remove(event.issueId());
+            log.info("Forgot issue {}", event.issueId());
+        } finally {
+            MDC.remove(MDC_KEY);
+        }
+    }
+
+    /**
+     * A whole project went, and its issues with it.
+     *
+     * <p>The database cascaded them, which is invisible from here: no {@code issue.deleted} is
+     * published for any of them, because {@code IssueService.deleteById} never ran. One message
+     * for the whole cascade, matching how the deletion actually happened.
+     */
+    @RabbitListener(queues = WorkflowMessaging.PROJECT_DELETED_QUEUE)
+    public void onProjectDeleted(ProjectDeleted event,
+                                 @Header(name = WorkflowMessaging.CORRELATION_HEADER, required = false)
+                                 String correlationId) {
+        MDC.put(MDC_KEY, correlationId == null ? "no-corr-id" : correlationId);
+        try {
+            index.removeProject(event.projectKey());
+        } finally {
+            MDC.remove(MDC_KEY);
+        }
     }
 
     @RabbitListener(queues = WorkflowMessaging.ISSUE_CREATED_QUEUE)
@@ -52,6 +97,12 @@ public class ClassificationListener {
                 throw new AmqpRejectAndDontRequeueException(
                         "issue.created arrived with no issueId. Parking it.");
             }
+
+            // Remember the ticket before classifying it. Deliberately first: indexing is local and
+            // cannot fail for an external reason, while the classifier can. Doing it first means a
+            // Groq outage costs the suggestion but not the duplicate detection - two features that
+            // arrive on the same message should not share one failure.
+            index.index(issue);
 
             Suggestion suggestion = classifier.classify(issue);
             publish(issue, suggestion, correlationId);

@@ -189,9 +189,13 @@ export function Board({ project, session, onLeave }: Props) {
       {view && (
         <NewIssueForm
           projectId={project.id}
+          projectKey={project.key}
           boardId={view.boardId}
           onCreated={() => void load()}
           onFailed={(message) => setNotice({ tone: 'stop', message })}
+          // The duplicate panel found the ticket being retyped. Opening it is the whole point:
+          // the best outcome of filing an issue is not filing it.
+          onOpenExisting={setOpenIssueId}
         />
       )}
 

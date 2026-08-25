@@ -177,6 +177,51 @@ a property nobody is attacking.
 
 ---
 
+## 8. Groq has no embeddings API — **M4, corrected**
+
+**The diagram was wrong.** `microservices-architecture.mermaid` labelled Groq as *"LLM +
+embeddings"*. It has no embeddings endpoint at all. Found at the end of M3, fixed at M4, and the
+diagram now says so — a source of truth that is quietly wrong is worse than no diagram.
+
+**Built instead:** `spring-ai-starter-model-transformers` runs `all-MiniLM-L6-v2` as ONNX inside
+classification-service. 384 dimensions, about 80MB, downloaded once and then cached.
+
+> Groq does not do embeddings, so they run in-process instead. That removed an API key, a cost, a
+> rate limit and a network call from the hot path, and the same ticket now always produces the same
+> vector. For a search that has to answer while somebody is typing, on a laptop, that is not a
+> compromise — it is the better end of the trade.
+
+The one cost worth stating: **the first start needs internet** to fetch the model. Every start after
+that is offline. Run it once before a demo.
+
+---
+
+## 9. The similarity threshold was measured, not chosen — **M4**
+
+**Build:** nothing more. Have the numbers.
+
+The first guess was 0.75. Against a ticket reading *"Login page crashes with a 500 error"*:
+
+| Query | Score | Same bug? |
+|---|---|---|
+| identical wording | 0.85 | yes |
+| "Login page fails with 500 for all users" | 0.75 | yes |
+| "Login screen throws a 500 when signing in" | 0.72 | yes |
+| "Sign-in screen returns a server error every time" | 0.54 | yes |
+| "Users report the login is broken" | 0.49 | yes |
+| "Add CSV export to the monthly reports page" | <0.20 | no |
+| "Repaint the bicycle shed a nicer shade of green" | <0.20 | no |
+
+> 0.75 would have found only near-identical wording and missed most real duplicates, which is the
+> exact failure the feature exists to prevent. Genuine rephrasings bottom out around 0.49 and
+> unrelated tickets never reach 0.20, so the threshold belongs in that gap. It is 0.45.
+
+Note the asymmetry runs the opposite way from auto-apply, deliberately: that threshold is high
+because it changes a ticket unattended, this one is low because it only offers a suggestion. A
+false positive costs a glance; a false negative costs a duplicate ticket.
+
+---
+
 ## Deliberately not doing
 
 Say these as decisions if asked, not as gaps:

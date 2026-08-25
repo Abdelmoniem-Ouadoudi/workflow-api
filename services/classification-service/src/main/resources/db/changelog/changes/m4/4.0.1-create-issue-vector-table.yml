@@ -1,0 +1,64 @@
+databaseChangeLog:
+  - changeSet:
+      id: 4.0.1
+      author: abdelmoniem
+      comment: >
+        One vector per issue, so "has somebody already reported this" can be answered before
+        the ticket is filed. The table is Spring AI's shape - PgVectorStore reads and writes
+        these exact column names - but it is created here rather than by the library.
+        initialize-schema is left false on purpose: every other table in this system comes from
+        a reviewed migration, and a table that appears by itself at startup is the one nobody
+        can account for six months later.
+      changes:
+        - sql:
+            comment: The extension has to exist before a vector column can be declared.
+            sql: CREATE EXTENSION IF NOT EXISTS vector
+
+        - createTable:
+            tableName: issue_vector
+            columns:
+              # uuid, not bigint: the id is Spring AI's to generate, and it generates uuids.
+              - column:
+                  name: id
+                  type: uuid
+                  defaultValueComputed: gen_random_uuid()
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              # The text that was embedded - title and description together. Kept so a result can
+              # be explained, and so a re-embedding after a model change needs no other source.
+              - column:
+                  name: content
+                  type: text
+              # issueId, issueKey, title, projectId. Enough to render a match without asking
+              # work-service anything, which is what keeps the search a single hop.
+              - column:
+                  name: metadata
+                  type: jsonb
+              # 384 is all-MiniLM-L6-v2's output size and is load-bearing. A mismatch fails on the
+              # first insert with an error that says nothing about the model.
+              - column:
+                  name: embedding
+                  type: vector(384)
+
+        - sql:
+            comment: >
+              HNSW rather than IVFFlat: IVFFlat has to be trained on existing rows to be any good,
+              and this table starts empty. Cosine, because sentence embeddings are compared by
+              direction and not length - a long ticket and a short one saying the same thing
+              should still match.
+            sql: >
+              CREATE INDEX idx_issue_vector_embedding ON issue_vector
+              USING hnsw (embedding vector_cosine_ops)
+
+        # Deleting an issue has to delete its vector, and that lookup is by issue id inside the
+        # jsonb. Without this it is a full scan of every vector in the system.
+        - sql:
+            comment: Supports deleting and re-indexing one issue by its id.
+            sql: >
+              CREATE INDEX idx_issue_vector_issue_id ON issue_vector
+              ((metadata ->> 'issueId'))
+
+      rollback:
+        - dropTable:
+            tableName: issue_vector

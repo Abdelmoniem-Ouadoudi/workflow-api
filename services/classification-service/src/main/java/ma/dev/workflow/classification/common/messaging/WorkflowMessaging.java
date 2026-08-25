@@ -18,9 +18,18 @@ public final class WorkflowMessaging {
 
     public static final String ISSUE_CREATED_KEY = "issue.created";
     public static final String ISSUE_CLASSIFIED_KEY = "issue.classified";
+    /** M4. A deleted issue has to be forgotten, or the duplicate panel keeps offering it. */
+    public static final String ISSUE_DELETED_KEY = "issue.deleted";
 
     public static final String ISSUE_CREATED_QUEUE = "issue.created.q";
     public static final String ISSUE_CREATED_DLQ = "issue.created.dlq";
+    public static final String ISSUE_DELETED_QUEUE = "issue.deleted.q";
+    public static final String ISSUE_DELETED_DLQ = "issue.deleted.dlq";
+
+    /** M4. A whole project went, taking its issues with it through a database cascade. */
+    public static final String PROJECT_DELETED_KEY = "project.deleted";
+    public static final String PROJECT_DELETED_QUEUE = "project.deleted.q";
+    public static final String PROJECT_DELETED_DLQ = "project.deleted.dlq";
 
     /** Carried as a message header so one user action stays greppable across the broker. */
     public static final String CORRELATION_HEADER = "X-Correlation-Id";

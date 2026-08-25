@@ -76,6 +76,76 @@ public class RabbitConfig {
                 .with(WorkflowMessaging.ISSUE_CREATED_DLQ);
     }
 
+    /**
+     * M4. Deletions, so a vector does not outlive its issue.
+     *
+     * <p>Its own queue rather than sharing the created one. They carry different payloads and fail
+     * for different reasons: a deletion that cannot be processed should not sit behind a backlog
+     * of classifications waiting on an external model.
+     */
+    @Bean
+    public Queue issueDeletedQueue() {
+        return QueueBuilder.durable(WorkflowMessaging.ISSUE_DELETED_QUEUE)
+                .deadLetterExchange(WorkflowMessaging.DEAD_LETTER_EXCHANGE)
+                .deadLetterRoutingKey(WorkflowMessaging.ISSUE_DELETED_DLQ)
+                .build();
+    }
+
+    @Bean
+    public Queue issueDeletedDeadLetterQueue() {
+        return QueueBuilder.durable(WorkflowMessaging.ISSUE_DELETED_DLQ).build();
+    }
+
+    @Bean
+    public Binding issueDeletedBinding(Queue issueDeletedQueue, TopicExchange workflowExchange) {
+        return BindingBuilder.bind(issueDeletedQueue)
+                .to(workflowExchange)
+                .with(WorkflowMessaging.ISSUE_DELETED_KEY);
+    }
+
+    @Bean
+    public Binding issueDeletedDeadLetterBinding(Queue issueDeletedDeadLetterQueue,
+                                                 TopicExchange deadLetterExchange) {
+        return BindingBuilder.bind(issueDeletedDeadLetterQueue)
+                .to(deadLetterExchange)
+                .with(WorkflowMessaging.ISSUE_DELETED_DLQ);
+    }
+
+    /**
+     * M4. Project deletions, which take a whole project's issues with them.
+     *
+     * <p>Its own queue for the same reason issue.deleted has one: different payload, different
+     * failure, and a forget-everything message should not queue behind classifications waiting on
+     * an external model.
+     */
+    @Bean
+    public Queue projectDeletedQueue() {
+        return QueueBuilder.durable(WorkflowMessaging.PROJECT_DELETED_QUEUE)
+                .deadLetterExchange(WorkflowMessaging.DEAD_LETTER_EXCHANGE)
+                .deadLetterRoutingKey(WorkflowMessaging.PROJECT_DELETED_DLQ)
+                .build();
+    }
+
+    @Bean
+    public Queue projectDeletedDeadLetterQueue() {
+        return QueueBuilder.durable(WorkflowMessaging.PROJECT_DELETED_DLQ).build();
+    }
+
+    @Bean
+    public Binding projectDeletedBinding(Queue projectDeletedQueue, TopicExchange workflowExchange) {
+        return BindingBuilder.bind(projectDeletedQueue)
+                .to(workflowExchange)
+                .with(WorkflowMessaging.PROJECT_DELETED_KEY);
+    }
+
+    @Bean
+    public Binding projectDeletedDeadLetterBinding(Queue projectDeletedDeadLetterQueue,
+                                                   TopicExchange deadLetterExchange) {
+        return BindingBuilder.bind(projectDeletedDeadLetterQueue)
+                .to(deadLetterExchange)
+                .with(WorkflowMessaging.PROJECT_DELETED_DLQ);
+    }
+
     /** JSON, so neither service needs the other's classes on its classpath. */
     @Bean
     public MessageConverter jsonMessageConverter(ObjectMapper objectMapper) {

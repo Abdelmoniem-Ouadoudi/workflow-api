@@ -225,6 +225,106 @@ check "a decision is made once -> 422" 422 -X POST $BASE/issues/$CLASSIFIED_ID/c
 check "override the other one" 200 -X POST $BASE/issues/$SECOND_ID/classification/override
 expect_field "overriding records the disagreement" reviewStatus "OVERRIDDEN"
 
+echo "########## SIMILARITY ##########"
+# The issue created above ("Login page crashes with a 500 error") is already embedded. Search for
+# it in words it does not share: matching "500 error" to "500 error" would prove string search
+# works, not that embeddings do. This phrasing measured 0.54 against that ticket, comfortably over
+# the 0.45 threshold and far above the <0.20 that unrelated tickets score.
+SIM_STATUS=0
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  SIM=$(curl -s -G "$BASE/similar" -H "Authorization: Bearer $TOKEN" \
+    --data-urlencode "text=Sign-in screen returns a server error every time" \
+    --data-urlencode "projectKey=$K")
+  SIM_STATUS=$(echo "$SIM" | python -c "import sys,json;print(len(json.load(sys.stdin)))" 2>/dev/null || echo 0)
+  [ "$SIM_STATUS" != "0" ] && break
+  sleep 2
+done
+if [ "$SIM_STATUS" != "0" ]; then
+  printf 'PASS  --   a near-duplicate was found in different words\n'; pass=$((pass+1))
+else
+  printf 'FAIL  no near-duplicate found (is the vector store populated?)\n'; fail=$((fail+1))
+fi
+
+# A detector that always finds something is not a detector.
+check "unrelated text finds nothing" 200 -G "$BASE/similar" --data-urlencode "text=Repaint the bicycle shed a nicer shade of green" --data-urlencode "projectKey=$K"
+UNRELATED=$(echo "$LAST" | python -c "import sys,json;print(len(json.load(sys.stdin)))")
+if [ "$UNRELATED" = "0" ]; then
+  printf 'PASS  --   unrelated text really returns nothing\n'; pass=$((pass+1))
+else
+  printf 'FAIL  got %s matches for unrelated text\n' "$UNRELATED"; fail=$((fail+1))
+fi
+
+# A duplicate in somebody else's project is not a duplicate.
+check "another project finds nothing" 200 -G "$BASE/similar" --data-urlencode "text=Sign-in screen returns a server error every time" --data-urlencode "projectKey=NOSUCHKEY"
+SCOPED=$(echo "$LAST" | python -c "import sys,json;print(len(json.load(sys.stdin)))")
+if [ "$SCOPED" = "0" ]; then
+  printf 'PASS  --   the search is scoped to one project\n'; pass=$((pass+1))
+else
+  printf 'FAIL  another project returned %s matches\n' "$SCOPED"; fail=$((fail+1))
+fi
+
+check_anon "similarity needs a token -> 401" 401 -G "$BASE/similar" --data-urlencode "text=anything at all here"
+
+# Deleting a PROJECT cascades to its issues in the database without IssueService ever running, so
+# no issue.deleted is published for any of them. project.deleted exists for exactly that, and this
+# case is here because the bug it fixes was invisible: the vectors simply stayed behind.
+CK="CAS$RANDOM"; CK=${CK:0:6}
+check "a project to delete" 201 -X POST $BASE/projects -H "$J" -d "{\"key\":\"$CK\",\"name\":\"Cascade\"}"
+CPID=$(id_of)
+check "its board" 200 "$BASE/boards?projectId=$CPID"
+CBID=$(echo "$LAST" | python -c "import sys,json;print(json.load(sys.stdin)[0]['id'])")
+check "an issue in it" 201 -X POST $BASE/issues -H "$J" -d "{\"title\":\"Cascade test ticket about the login failing badly\",\"description\":\"Something is broken.\",\"type\":\"BUG\",\"priority\":\"HIGH\",\"projectId\":$CPID,\"boardId\":$CBID}"
+# Wait for it to be embedded, so the check below is measuring the deletion and not a race.
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  FOUND=$(curl -s -G "$BASE/similar" -H "Authorization: Bearer $TOKEN" \
+    --data-urlencode "text=Cascade test ticket about the login failing badly" \
+    --data-urlencode "projectKey=$CK" \
+    | python -c "import sys,json;print(len(json.load(sys.stdin)))" 2>/dev/null || echo 0)
+  [ "$FOUND" != "0" ] && break
+  sleep 2
+done
+check "delete the whole project" 204 -X DELETE $BASE/projects/$CPID
+sleep 4
+GONE=$(curl -s -G "$BASE/similar" -H "Authorization: Bearer $TOKEN" \
+  --data-urlencode "text=Cascade test ticket about the login failing badly" \
+  --data-urlencode "projectKey=$CK" \
+  | python -c "import sys,json;print(len(json.load(sys.stdin)))" 2>/dev/null || echo -1)
+if [ "$GONE" = "0" ]; then
+  printf 'PASS  --   deleting a project takes its vectors with it\n'; pass=$((pass+1))
+else
+  printf 'FAIL  %s vectors survived the project being deleted\n' "$GONE"; fail=$((fail+1))
+fi
+# Rejected at the door rather than embedded and answered with noise.
+check "a two-letter search -> 400" 400 -G "$BASE/similar" --data-urlencode "text=ab" --data-urlencode "projectKey=$K"
+check "no text at all -> 400" 400 "$BASE/similar?projectKey=$K"
+
+echo "########## DASHBOARD ##########"
+check_anon "the dashboard needs a token -> 401" 401 $BASE/dashboard
+check "the dashboard loads" 200 $BASE/dashboard
+# Asserts the shape, not a number: the counts depend on whatever is in the database when this runs.
+# A missing key would come back as the string "None" and fail loudly, which is the point.
+for field in totalIssues classifiedIssues awaitingReview byType byPriority byStatus byTeam byEffort; do
+  present=$(echo "$LAST" | python -c "import sys,json;print('yes' if '$field' in json.load(sys.stdin) else 'no')")
+  if [ "$present" = "yes" ]; then
+    printf 'PASS  --   the dashboard reports %s\n' "$field"; pass=$((pass+1))
+  else
+    printf 'FAIL  the dashboard is missing %s\n' "$field"; fail=$((fail+1))
+  fi
+done
+# The issues created above are real, so this cannot be zero.
+POSITIVE=$(echo "$LAST" | python -c "import sys,json;print(json.load(sys.stdin)['totalIssues'] > 0)")
+if [ "$POSITIVE" = "True" ]; then
+  printf 'PASS  --   it counts real issues\n'; pass=$((pass+1))
+else
+  printf 'FAIL  totalIssues was zero with issues in the database\n'; fail=$((fail+1))
+fi
+
+echo "########## REINDEX ##########"
+SAVED=$TOKEN; TOKEN=$DEV_TOKEN
+check "a developer cannot reindex -> 403" 403 -X POST $BASE/admin/issues/reindex
+TOKEN=$SAVED
+check "an admin can reindex" 200 -X POST $BASE/admin/issues/reindex
+
 echo "########## THE DEAD-LETTER QUEUE ##########"
 # Replaying puts real work back into the system, so it is an ADMIN action on the classifier.
 SAVED=$TOKEN; TOKEN=$DEV_TOKEN

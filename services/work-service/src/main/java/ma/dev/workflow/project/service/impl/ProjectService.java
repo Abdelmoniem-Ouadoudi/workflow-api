@@ -8,8 +8,10 @@ import ma.dev.workflow.common.exception.BusinessRuleException;
 import ma.dev.workflow.project.dto.ProjectDTO;
 import ma.dev.workflow.project.dto.mapper.ProjectMapper;
 import ma.dev.workflow.project.models.Project;
+import ma.dev.workflow.project.events.ProjectDeletedEvent;
 import ma.dev.workflow.project.repositories.ProjectRepository;
 import ma.dev.workflow.project.service.IProjectService;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,13 +26,16 @@ public class ProjectService implements IProjectService {
     private final ProjectRepository projectRepository;
     private final BoardRepository boardRepository;
     private final ProjectMapper projectMapper;
+    private final ApplicationEventPublisher events;
 
     public ProjectService(ProjectRepository projectRepository,
                           BoardRepository boardRepository,
-                          ProjectMapper projectMapper) {
+                          ProjectMapper projectMapper,
+                          ApplicationEventPublisher events) {
         this.projectRepository = projectRepository;
         this.boardRepository = boardRepository;
         this.projectMapper = projectMapper;
+        this.events = events;
     }
 
     @Override
@@ -82,7 +87,15 @@ public class ProjectService implements IProjectService {
     @Override
     @Transactional
     public void deleteById(Long id) {
-        projectRepository.delete(getOrThrow(id));
+        Project project = getOrThrow(id);
+        projectRepository.delete(project);
+
+        // The issues go with it through ON DELETE CASCADE, and that cascade is invisible outside
+        // this database: IssueService.deleteById never runs, so no issue.deleted is ever published
+        // and every vector for this project would be orphaned. One event for the whole cascade,
+        // because the cascade is one act - a hundred deletions would be a hundred chances to lose
+        // one.
+        events.publishEvent(new ProjectDeletedEvent(project.getId(), project.getKey()));
     }
 
     private Project getOrThrow(Long id) {

@@ -773,3 +773,217 @@ The consumer's copy is annotated `@JsonIgnoreProperties(ignoreUnknown = true)`, 
 versioning strategy: work-service can add a field without the classifier being redeployed first.
 Without it, one new field on the producer would send every message to the dead-letter queue.
 
+
+---
+
+# M4 â€” Similarity and insights
+
+## Groq has no embeddings API, and the architecture diagram said it did
+
+Found at the end of M3. `microservices-architecture.mermaid` labelled Groq as "LLM + embeddings";
+it has no embeddings endpoint at all. The diagram now says LLM only â€” a source of truth that is
+quietly wrong is worse than no diagram.
+
+The replacement is better than what it replaced: `spring-ai-starter-model-transformers` runs
+`all-MiniLM-L6-v2` as ONNX inside classification-service. No API key, no cost, no rate limit, and
+no network call while somebody is waiting for the answer. The same ticket always produces the same
+vector, which a remote model does not guarantee.
+
+The one cost, stated: the first start downloads about 80MB. Every start after that reads the cache
+and works offline. Run it once before a demo.
+
+## Why the vectors are in a third database
+
+`vectordb`, owned by classification-service. Same seam as `authdb`: each service owns its data, and
+work-service has no connection to this one.
+
+It is also the only database here that can be thrown away. Every vector is derived from an issue
+and can be rebuilt by replaying `issue.created`, which is what `POST /admin/issues/reindex` does.
+The other two hold the record; this one holds a working memory.
+
+## Why Liquibase creates the vector table and not Spring AI
+
+`spring.ai.vectorstore.pgvector.initialize-schema` is false. Left true, `PgVectorStore` builds its
+own table at startup.
+
+Every other table in this system comes from a reviewed, versioned migration. A table that appears
+by itself when an application boots is the one nobody can account for six months later, and it
+means the schema has two owners. The migration describes a table whose column names the library
+owns â€” which is exactly why it is worth having in writing.
+
+## Why 384, and why it is load-bearing
+
+It is `all-MiniLM-L6-v2`'s output size, and the column is `vector(384)`. A mismatch fails on the
+first insert with an error that mentions neither the model nor the dimension, so the number is
+written next to the reason in both the migration and the properties file.
+
+## Why HNSW and cosine
+
+**HNSW rather than IVFFlat**: IVFFlat has to be trained on rows that already exist to build useful
+clusters, and this table starts empty. HNSW needs no training.
+
+**Cosine rather than Euclidean**: sentence embeddings encode meaning in direction, not magnitude. A
+long ticket and a short one saying the same thing should still match, and Euclidean distance would
+separate them by length.
+
+## The threshold was measured, and the first guess was wrong
+
+0.75 was a guess. Measured against a ticket reading "Login page crashes with a 500 error":
+
+| Query | Score | Same bug? |
+|---|---|---|
+| identical wording | 0.85 | yes |
+| "Login page fails with 500 for all users" | 0.75 | yes |
+| "Login screen throws a 500 when signing in" | 0.72 | yes |
+| "Sign-in screen returns a server error every time" | 0.54 | yes |
+| "Users report the login is broken" | 0.49 | yes |
+| "Add CSV export to the monthly reports page" | <0.20 | no |
+| "Repaint the bicycle shed a nicer shade of green" | <0.20 | no |
+
+0.75 would have caught only near-identical wording and missed most real duplicates â€” the exact
+failure the feature exists to prevent. Genuine rephrasings bottom out around 0.49; unrelated
+tickets never reach 0.20. The gap between them is wide, and the threshold belongs in it: **0.45**.
+
+**The asymmetry runs the opposite way from auto-apply, deliberately.** That threshold is high
+because it changes a ticket with nobody watching. This one is low because it only offers a
+suggestion: a false positive costs a glance, a false negative costs a duplicate ticket.
+
+## Why similarity search is synchronous when everything else is a queue
+
+M3 put everything on RabbitMQ because nobody was waiting for it â€” an issue is created, and the
+suggestion arrives when it arrives.
+
+Here somebody is waiting. The answer is worthless once they have pressed submit, so this is the one
+call in the system where a queue would be the wrong tool. It is also the first synchronous route
+the gateway has to classification-service.
+
+## Why an issue is embedded on the same message that classifies it
+
+The classifier already receives every issue over `issue.created`. Embedding it there means one
+pipeline rather than two, and no second path that can silently fall behind the first.
+
+Indexing runs **before** classifying, on purpose: indexing is local and cannot fail for an external
+reason, while the Groq call can. Doing it first means a provider outage costs the suggestion but not
+the duplicate detection. Two features arriving on the same message should not share one failure.
+
+## Why deleting an issue needs an event
+
+The classification row disappears with its issue through `ON DELETE CASCADE`. The vector cannot: it
+is in another database and there is no foreign key to cascade along.
+
+So work-service publishes `issue.deleted` and the classifier removes the row. Without it the
+duplicate panel would keep offering tickets that no longer exist, and the failure would be silent
+and would get steadily worse.
+
+Its own queue rather than sharing `issue.created.q`: they carry different payloads and fail for
+different reasons, and a deletion should not sit behind a backlog of classifications waiting on an
+external model.
+
+## Why reindexing is replaying `issue.created`
+
+Issues created before M4 have no vector, and a model change would invalidate the ones that do.
+
+Rather than a backfill that walks the table and talks to the classifier directly, `POST
+/admin/issues/reindex` republishes the creation event for every issue. It is the same path a new
+issue takes, so there is no second code path to keep correct â€” and it is safe to run twice, because
+the classification listener updates by issue id and the index deletes before it inserts.
+
+## Why the dashboard is one endpoint
+
+Six endpoints would mean six round trips, six loading states, a screen that can render
+half-populated while somebody watches, and numbers from six slightly different moments. The last
+one is the real problem: a dashboard whose totals do not add up is worse than a slow dashboard.
+
+## Why the agreement rate excludes PENDING
+
+`(AUTO_APPLIED + CONFIRMED) / (AUTO_APPLIED + CONFIRMED + OVERRIDDEN)`.
+
+A suggestion nobody has looked at is not a disagreement. Including PENDING would make this number
+fall every time somebody files a ticket â€” it would measure how busy the team is, not how right the
+model is.
+
+**The weakest part, said before anybody asks:** AUTO_APPLIED counts as agreement, and nobody
+confirmed those. It means the model was confident and was not contradicted. Silence is being read
+as assent, so the honest reading is "not overridden" rather than "verified correct".
+
+Null rather than zero when nothing has been judged: zero would read as "the AI is always wrong",
+which is a very different claim from "nobody has checked yet".
+
+## Why there is no `component` on the dashboard, when PROJECT.md asks for one
+
+`PROJECT.md` says "type/component distribution". `Issue` has no `component` field and the class
+diagram never gives it one.
+
+Adding a column to serve a chart is the wrong order â€” the diagram is the source of truth and model
+changes go there first. The nearest real axis is the team the AI reads out of each ticket, and that
+is on the screen, labelled as inferred rather than entered. `BACKLOG.md` item 25.
+
+## Why the charts are CSS and not a library
+
+Five distributions and a percentage. A charting library would be the first dependency in this
+project that could not be explained line by line, and the bars are a div with a width.
+
+They are sized relative to the **largest bar, not the total**: relative to the total, a healthy
+spread across six categories renders as six slivers and communicates nothing.
+
+## Why the duplicate panel says nothing most of the time
+
+Three rules keep it from being the kind of panel people learn to scroll past:
+
+- it renders nothing at all when there is no match, which is the common case
+- it waits 500ms for a pause in typing, and ignores anything under 10 characters
+- it never reports its own errors. A duplicate check that could not run is not the writer's
+  problem, and an error box over a form somebody is filling in is worse than silence
+
+Each request is aborted when the text changes, so a slow answer for old text can never arrive after
+a fast answer for new text and overwrite it. That also meant teaching the API client that an
+`AbortError` is not a failure â€” otherwise cancelling a request would have put "cannot reach the
+server" on screen while somebody typed.
+
+## Why the search is scoped to a project
+
+A duplicate in somebody else's project is not a duplicate. The filter runs in the database rather
+than over the results, so a busy project cannot push another project's matches out of the top five.
+
+## Why the score is shown to the reader
+
+"84% alike" lets somebody judge a borderline match for themselves. A bare list asks them to trust
+the model, and the whole principle of this project is that the AI suggests and a person decides.
+
+
+## The orphaned vectors: why a database cascade needs its own event
+
+Deleting an issue publishes `issue.deleted` and the classifier forgets its vector. That was built
+first and it works.
+
+Deleting a **project** does not. `issue.project_id` is `ON DELETE CASCADE`, so the database removes
+every issue in that project without `IssueService.deleteById` ever running — and therefore without
+a single `issue.deleted` being published. Every one of those vectors stayed behind, and the
+duplicate panel would have gone on suggesting tickets from a project that no longer existed.
+
+Found by counting rows after a test, not by reading the code: three test projects were deleted and
+their vectors were still there.
+
+The fix is a second event, `project.deleted`, and the classifier deletes by `projectKey`. **One
+message for the whole cascade**, because the cascade is one act — modelling it as a hundred
+deletions would be a hundred chances to lose one.
+
+The general lesson is worth more than the fix: **a foreign key cascade is invisible outside its own
+database.** Anything holding derived data about rows in another service cannot see them disappear,
+so every cascade that crosses a service boundary has to be announced deliberately. It is the same
+shape as the correlation id stopping at the queue, and the same shape as `ai_classification`
+cascading while `issue_vector` cannot.
+
+## The PowerShell array trap in the check scripts
+
+`scripts/check-similarity.ps1` reported "0% alike" for two tickets that had genuinely returned no
+match, which looked exactly like the similarity threshold being too low.
+
+It was not. Windows PowerShell 5.1's `ConvertFrom-Json` passes a parsed array through the pipeline
+as **one object** rather than unrolling it, so `@(...)` and `Measure-Object` both report 1 for an
+empty array and 1 for a ten-element one. An empty result counted as one match with a null score,
+which rounded to zero.
+
+The script now counts off the assigned variable — `$parsed -is [array]` then `.Count` — which is
+version-proof. Worth knowing because the wrong answer was plausible: it pointed at the feature
+rather than at the tool measuring it.

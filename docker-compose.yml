@@ -1,6 +1,10 @@
 services:
   db:
-    image: postgres:16
+    # Postgres 16 with the pgvector extension already compiled in, added at M4 for similarity
+    # search. Same server underneath, so an existing data volume is read as-is - no wipe, no
+    # dump and restore. Building the extension into the image beats installing it at runtime,
+    # which would have to be repeated every time the container is recreated.
+    image: pgvector/pgvector:pg16
     container_name: workflow-db
     environment:
       POSTGRES_DB: workflow

@@ -1,0 +1,8 @@
+databaseChangeLog:
+  # Explicit includes, never includeAll: includeAll orders files alphabetically, which is not
+  # the order migrations must run in.
+  #
+  # This service had no database until M4, so its numbering starts at 4.x. The folder is named
+  # for the milestone, not for a continuous sequence.
+  - include:
+      file: db/changelog/changes/m4/4.0.1-create-issue-vector-table.yml

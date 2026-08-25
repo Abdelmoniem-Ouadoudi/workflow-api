@@ -9,6 +9,7 @@ import ma.dev.workflow.issue.dto.IssueDTO;
 import ma.dev.workflow.issue.dto.IssueStatusUpdateDTO;
 import ma.dev.workflow.issue.dto.mapper.IssueMapper;
 import ma.dev.workflow.issue.events.IssueCreatedEvent;
+import ma.dev.workflow.issue.events.IssueDeletedEvent;
 import ma.dev.workflow.issue.models.Issue;
 import ma.dev.workflow.issue.models.enums.Priority;
 import ma.dev.workflow.issue.models.enums.Status;
@@ -183,7 +184,38 @@ public class IssueService implements IIssueService {
     @Override
     @Transactional
     public void deleteById(Long id) {
-        issueRepository.delete(getOrThrow(id));
+        Issue issue = getOrThrow(id);
+        issueRepository.delete(issue);
+
+        // The classification row goes with it through ON DELETE CASCADE. The vector does not: it
+        // lives in another database and has no foreign key to cascade along, so the classifier is
+        // told. Without this the duplicate panel keeps offering tickets that no longer exist.
+        events.publishEvent(new IssueDeletedEvent(issue.getId(), issue.getIssueKey()));
+    }
+
+    /**
+     * Republishes {@code issue.created} for every issue, so the classifier re-reads them all.
+     *
+     * <p>Issues created before M4 have no vector, and a model change would invalidate the ones that
+     * do. Rather than a backfill that walks the table and talks to the classifier directly, this
+     * replays the event each issue already sent when it was created: one code path, so there is no
+     * second one to keep correct. It is safe to run twice — the classification listener updates by
+     * issue id, and the index deletes before it inserts.
+     *
+     * <p>Read-only despite publishing: it changes nothing here. The work happens on the other side
+     * of the queue, which is also why the caller gets a count back immediately rather than waiting.
+     */
+    @Override
+    public int reindexAll() {
+        List<Issue> all = issueRepository.findAll();
+
+        for (Issue issue : all) {
+            events.publishEvent(new IssueCreatedEvent(
+                    issue.getId(), issue.getIssueKey(), issue.getTitle(),
+                    issue.getDescription(), issue.getProject().getKey()));
+        }
+
+        return all.size();
     }
 
     private Issue getOrThrow(Long id) {

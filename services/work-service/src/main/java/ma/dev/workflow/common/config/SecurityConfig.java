@@ -120,6 +120,9 @@ public class SecurityConfig {
                         // The one role rule, so the role claim is provably enforced and not just
                         // carried around. Deactivating someone is an administrator's decision.
                         .requestMatchers(HttpMethod.DELETE, "/users/**").hasRole("ADMIN")
+                        // Operational actions, not work. Reindexing pushes every issue back through
+                        // the classifier, which is a real load on an external model.
+                        .requestMatchers("/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2.jwt(jwt -> jwt
                         .decoder(jwtDecoder)

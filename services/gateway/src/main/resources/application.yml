@@ -36,7 +36,7 @@ spring:
             - id: work-service
               uri: lb://work-service
               predicates:
-                - Path=/projects/**,/boards/**,/sprints/**,/issues/**,/users/**
+                - Path=/projects/**,/boards/**,/sprints/**,/issues/**,/users/**,/dashboard/**,/admin/issues/**
               filters:
                 - name: CircuitBreaker
                   args:
@@ -51,6 +51,27 @@ spring:
                 # This stays because the gateway owns the browser contract and should not be
                 # breakable by what a service downstream decides to put in a header.
                 # RETAIN_FIRST keeps the gateway's value, which is the authoritative one.
+                - name: DedupeResponseHeader
+                  args:
+                    name: Access-Control-Allow-Origin Access-Control-Allow-Credentials
+                    strategy: RETAIN_FIRST
+
+            # M4, and the first synchronous route to the classifier. Everything else it does is
+            # driven by the queue because nobody is waiting; here somebody is, typing a ticket
+            # title, and the answer is worthless once they have pressed submit.
+            #
+            # /admin/classification is the dead-letter queue's controls, which live on the service
+            # that owns that queue. /admin/issues goes to work-service above - same prefix, two
+            # services, because the operator's actions belong wherever the thing they operate is.
+            - id: classification-service
+              uri: lb://classification-service
+              predicates:
+                - Path=/similar/**,/admin/classification/**
+              filters:
+                - name: CircuitBreaker
+                  args:
+                    id: classificationServiceCircuitBreaker
+                    fallbackPath: /fallback/classification-service
                 - name: DedupeResponseHeader
                   args:
                     name: Access-Control-Allow-Origin Access-Control-Allow-Credentials

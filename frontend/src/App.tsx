@@ -4,18 +4,26 @@ import type { Project } from './api/types'
 import { endSession, getSession } from './auth/session'
 import type { Session } from './auth/session'
 import { Board } from './components/Board'
+import { Dashboard } from './components/Dashboard'
 import { ProjectList } from './components/ProjectList'
 import { SignIn } from './components/SignIn'
 
 type Check = 'checking' | 'done'
 
+/** Which screen is showing. Four of them now, and still no router — docs/BACKLOG.md item 11. */
+type Screen = 'projects' | 'board' | 'dashboard'
+
 /**
- * Three screens now: sign in, then the project list or a board. Still switched by state and still
- * no router — recorded in docs/BACKLOG.md.
+ * Four screens: sign in, then the project list, a board, or the dashboard.
+ *
+ * Still switched by state. The router argument gets stronger with each screen added — you cannot
+ * refresh into the dashboard or link somebody to it — but a router is a dependency and a concept,
+ * and the answer to "why is there no router" should be a decision rather than an oversight.
  */
 export function App() {
   const [session, setSession] = useState<Session | null>(getSession)
   const [project, setProject] = useState<Project | null>(null)
+  const [screen, setScreen] = useState<Screen>('projects')
   const [check, setCheck] = useState<Check>(session === null ? 'done' : 'checking')
 
   // The API clears the session on any 401 — an expired token, or a restarted auth-service with a
@@ -24,6 +32,7 @@ export function App() {
     setSessionExpiredHandler(() => {
       setSession(null)
       setProject(null)
+      setScreen('projects')
     })
   }, [])
 
@@ -47,6 +56,17 @@ export function App() {
     endSession()
     setSession(null)
     setProject(null)
+    setScreen('projects')
+  }
+
+  function openProject(opened: Project) {
+    setProject(opened)
+    setScreen('board')
+  }
+
+  function backToProjects() {
+    setProject(null)
+    setScreen('projects')
   }
 
   if (session === null) {
@@ -64,9 +84,20 @@ export function App() {
     return <p className="page__loading page">Checking your session…</p>
   }
 
-  return project === null ? (
-    <ProjectList session={session} onOpen={setProject} onSignOut={signOut} />
-  ) : (
-    <Board project={project} session={session} onLeave={() => setProject(null)} />
+  if (screen === 'dashboard') {
+    return <Dashboard session={session} onLeave={backToProjects} onSignOut={signOut} />
+  }
+
+  if (screen === 'board' && project !== null) {
+    return <Board project={project} session={session} onLeave={backToProjects} />
+  }
+
+  return (
+    <ProjectList
+      session={session}
+      onOpen={openProject}
+      onSignOut={signOut}
+      onOpenDashboard={() => setScreen('dashboard')}
+    />
   )
 }

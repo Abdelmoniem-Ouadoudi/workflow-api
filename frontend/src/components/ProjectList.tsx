@@ -11,6 +11,7 @@ interface Props {
   session: Session
   onOpen: (project: Project) => void
   onSignOut: () => void
+  onOpenDashboard: () => void
 }
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' })
@@ -19,7 +20,7 @@ function formatShortDate(iso: string): string {
   return dateFormatter.format(new Date(iso))
 }
 
-export function ProjectList({ session, onOpen, onSignOut }: Props) {
+export function ProjectList({ session, onOpen, onSignOut, onOpenDashboard }: Props) {
   const [projects, setProjects] = useState<Project[]>([])
   const [key, setKey] = useState('')
   const [name, setName] = useState('')
@@ -76,7 +77,12 @@ export function ProjectList({ session, onOpen, onSignOut }: Props) {
           <WhoAmI session={session} onSignOut={onSignOut} />
         </div>
         <h1 className="masthead__title">Workflow</h1>
-        <p className="masthead__sub">Track work through three states. Nothing skips a step.</p>
+        <p className="masthead__sub">
+          Track work through three states. Nothing skips a step.{' '}
+          <button type="button" className="link" onClick={onOpenDashboard}>
+            See the insights
+          </button>
+        </p>
         <div className="masthead__rail" aria-hidden="true" />
       </header>
 

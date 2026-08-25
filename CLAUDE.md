@@ -48,8 +48,9 @@ classification-service **8083**, gateway **8090**, Postgres **5433**,
 RabbitMQ **5672** (management UI **15672**, workflow/workflow), Vite **5173**.
 8080 and 5432 are avoided because a local Apache and a local Postgres already use them.
 
-Databases: `workflow` (work-service) and `authdb` (auth-service), same Postgres process.
-classification-service has none — it consumes, calls a model, publishes, and forgets.
+Databases, all in one Postgres process (image `pgvector/pgvector:pg16` since M4):
+`workflow` (work-service), `authdb` (auth-service), `vectordb` (classification-service).
+`vectordb` is the only one that can be thrown away — rebuild it with `POST /admin/issues/reindex`.
 
 **Start order:** discovery → work → auth → classification → gateway. Registration takes up to
 ~30s to propagate; `http://localhost:8761` must list all four before the gateway can route.
@@ -57,6 +58,10 @@ classification-service has none — it consumes, calls a model, publishes, and f
 **No Groq key?** `app.classification.provider` defaults to `stub`, which is keyword rules, not AI.
 It says so on startup and stamps `modelVersion=stub-v1` on every suggestion. For the real thing:
 set `GROQ_API_KEY`, then `CLASSIFICATION_PROVIDER=groq`.
+
+**Embeddings need no key.** `all-MiniLM-L6-v2` runs in-process as ONNX — Groq has no embeddings
+endpoint. The **first** start of classification-service downloads ~80MB and looks like a hang;
+every start after that is cached and offline. Run it once with internet before a demo.
 
 ## Source of truth
 - `docs/PROJECT.md` — milestones. Work ONLY on the current one.

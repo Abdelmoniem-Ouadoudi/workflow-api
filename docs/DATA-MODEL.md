@@ -2,15 +2,22 @@
 
 Read from the live database, not from the migration files.
 
-Since M2 there are **two databases**, both in the same Postgres process on 5433:
+Since M4 there are **three databases**, all in the same Postgres process on 5433. The image is
+`pgvector/pgvector:pg16` — Postgres 16 with the vector extension compiled in.
 
 | Database | Owner | Holds |
 |---|---|---|
 | `workflow` | work-service | 8 business tables — projects, boards, sprints, issues, comments, attachments, people, AI classifications |
 | `authdb` | auth-service | 1 table — `account`, the credentials |
+| `vectordb` | classification-service | 1 table — `issue_vector`, one embedding per issue |
 
 Each has its own Liquibase changelog and its own connection. Nothing can join across them, and
-that is the point rather than a limitation: see `account` at the end of this file.
+that is the point rather than a limitation: see `account` and `issue_vector` at the end of this
+file.
+
+**`vectordb` is the only one that can be thrown away.** It holds derived data: every vector can be
+rebuilt by replaying `issue.created` for each issue, which is what `POST /admin/issues/reindex`
+does. The other two hold the record.
 
 All eight business tables are here. `ai_classification` arrived at M3.
 
@@ -362,6 +369,60 @@ registration is a dual write, and what happens when half of it fails is written 
 
 The claim `uid` in every JWT is this value, which is why no service ever has to call auth-service
 to find out who the caller is.
+
+---
+
+# issue_vector
+### database `vectordb`, owned by classification-service — added at M4
+
+One embedding per issue, so "has somebody already reported this" can be answered before the ticket
+is filed.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid | primary key, `gen_random_uuid()` |
+| `content` | text | the title and description that were embedded |
+| `metadata` | jsonb | `issueId`, `issueKey`, `title`, `projectKey` |
+| `embedding` | vector(384) | `all-MiniLM-L6-v2`, run in-process as ONNX |
+
+Indexes:
+- `idx_issue_vector_embedding` — HNSW on `vector_cosine_ops`
+- `idx_issue_vector_issue_id` — btree on `(metadata ->> 'issueId')`
+
+**The table is Spring AI's shape but this project's migration.** `PgVectorStore` reads and writes
+these exact column names, and it will create the table itself if
+`spring.ai.vectorstore.pgvector.initialize-schema` is left true. It is false: every other table
+here comes from a reviewed migration, and a table that appears by itself at startup is the one
+nobody can account for later.
+
+**384 is load-bearing.** It is the model's output size. A mismatch fails on the first insert with
+an error that mentions neither the model nor the dimension.
+
+**HNSW, not IVFFlat.** IVFFlat has to be trained on existing rows to be any good, and this table
+starts empty. **Cosine**, because sentence embeddings are compared by direction rather than length
+— a long ticket and a short one saying the same thing should still match.
+
+**No foreign key to `issue`, and it cannot have one** — different database. So deletion is not
+cascaded, it is announced: work-service publishes `issue.deleted` and the classifier removes the
+row. Without that the duplicate panel would keep offering tickets that no longer exist, and the
+failure would be silent and would get worse.
+
+**A database cascade needs its own announcement.** Deleting a *project* removes its issues through
+`ON DELETE CASCADE`, so `IssueService.deleteById` never runs and not one `issue.deleted` is
+published — every vector in that project would be orphaned. That is why there is a second event,
+`project.deleted`, and why the classifier deletes by `projectKey` when it arrives. One message for
+the whole cascade, because the cascade is one act.
+
+This was found by counting rows after a test, not by reading the code: deleting three test projects
+left their vectors behind.
+
+**The second index is not decoration.** Deleting or re-indexing one issue looks it up by
+`metadata ->> 'issueId'`. Without an index on that expression it is a full scan of every vector in
+the system, on the one path that runs for every deletion.
+
+**Everything needed to render a match is in `metadata`**, so a search is one query and never calls
+work-service. The cost is a stale title if a ticket is renamed without a reindex —
+[BACKLOG.md](BACKLOG.md).
 
 ---
 

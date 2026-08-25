@@ -2,10 +2,12 @@ package ma.dev.workflow.issue.events;
 
 import ma.dev.workflow.common.messaging.WorkflowMessaging;
 import ma.dev.workflow.common.web.CorrelationIdFilter;
+import ma.dev.workflow.project.events.ProjectDeletedEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.amqp.AmqpException;
+import org.springframework.amqp.core.MessageDeliveryMode;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
@@ -44,6 +46,41 @@ public class IssueEventPublisher {
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void publish(IssueCreatedEvent event) {
+        send(WorkflowMessaging.ISSUE_CREATED_KEY, event, event.issueKey(),
+                "It will not be classified until this message is replayed.");
+    }
+
+    /**
+     * M4. Tells the classifier to forget a deleted issue.
+     *
+     * <p>Also after commit, and for a sharper reason than creation: publishing before the delete
+     * commits would drop the vector for an issue that is still there if the transaction rolls back,
+     * and it would stop being suggested while still existing.
+     */
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void publish(IssueDeletedEvent event) {
+        send(WorkflowMessaging.ISSUE_DELETED_KEY, event, event.issueKey(),
+                "Its vector will keep being offered as a possible duplicate until it is reindexed.");
+    }
+
+    /**
+     * M4. A whole project went, and its issues with it.
+     *
+     * <p>Lives here rather than in a project-specific publisher because what it announces is the
+     * disappearance of issues — the classifier reacts to it exactly as it reacts to one deletion,
+     * only wider.
+     */
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void publish(ProjectDeletedEvent event) {
+        send(WorkflowMessaging.PROJECT_DELETED_KEY, event, event.projectKey(),
+                "The vectors for its issues will keep being offered until they are reindexed.");
+    }
+
+    /**
+     * One send, so every event carries the correlation id and survives a broker restart the same
+     * way. The difference between them is a routing key and what it costs when it fails.
+     */
+    private void send(String routingKey, Object payload, String issueKey, String consequence) {
         // Read before the send: the listener runs on the request thread, so the MDC still holds
         // the id the gateway set. Reading it here rather than inside the post-processor keeps the
         // failure path below able to log it too.
@@ -52,8 +89,8 @@ public class IssueEventPublisher {
         try {
             rabbitTemplate.convertAndSend(
                     WorkflowMessaging.EXCHANGE,
-                    WorkflowMessaging.ISSUE_CREATED_KEY,
-                    event,
+                    routingKey,
+                    payload,
                     message -> {
                         if (correlationId != null) {
                             // The HTTP header stops at the queue. Carrying it in the message is
@@ -61,22 +98,20 @@ public class IssueEventPublisher {
                             message.getMessageProperties()
                                     .setHeader(WorkflowMessaging.CORRELATION_HEADER, correlationId);
                         }
-                        // Survives a broker restart. A classification request is cheap to redo but
-                        // impossible to recover once the queue has forgotten it.
-                        message.getMessageProperties().setDeliveryMode(
-                                org.springframework.amqp.core.MessageDeliveryMode.PERSISTENT);
+                        // Survives a broker restart. These messages are cheap to redo but
+                        // impossible to recover once the queue has forgotten them.
+                        message.getMessageProperties().setDeliveryMode(MessageDeliveryMode.PERSISTENT);
                         return message;
                     });
 
-            log.debug("Published {} for issue {}", WorkflowMessaging.ISSUE_CREATED_KEY, event.issueKey());
+            log.debug("Published {} for issue {}", routingKey, issueKey);
 
         } catch (AmqpException ex) {
             // Swallowed on purpose. The transaction has already committed, so throwing would not
-            // undo the issue - it would only turn a successful creation into a 500 for the user.
-            // The ticket is real and usable; only its suggestion is missing. Logged at error with
-            // the key, so the ones that need replaying can be found.
-            log.error("Issue {} was created but could not be announced to the broker. "
-                    + "It will not be classified until this message is replayed.", event.issueKey(), ex);
+            // undo the write - it would only turn a successful request into a 500 for the user.
+            // Logged at error with the key, so the ones that need replaying can be found.
+            log.error("Issue {} was changed but {} could not be announced to the broker. {}",
+                    issueKey, routingKey, consequence, ex);
         }
     }
 }

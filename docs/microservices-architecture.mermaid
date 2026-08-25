@@ -14,7 +14,8 @@ flowchart LR
 
     REG["Eureka<br/>service registry"]
     MQ[("RabbitMQ")]
-    GROQ[["Groq API<br/>LLM + embeddings"]]
+    GROQ[["Groq API<br/>LLM only — no embeddings endpoint"]]
+    ONNX["all-MiniLM-L6-v2<br/>ONNX, in-process, 384-dim"]
     ADB[("Auth DB")]
     CDB[("Core DB<br/>PostgreSQL")]
     VDB[("Vector store<br/>pgvector")]
@@ -29,7 +30,8 @@ flowchart LR
     CORE -- "publish issue.created" --> MQ
     MQ -- "consume" --> AI
     AI -- "classify (JSON mode)" --> GROQ
-    AI -- "embed + search" --> VDB
+    AI -- "embed (local, no API call)" --> ONNX
+    AI -- "store + search vectors" --> VDB
     AI -- "publish issue.classified" --> MQ
     MQ -- "consume result" --> CORE
     MQ -- "consume" --> NOTIF

@@ -127,6 +127,45 @@ export interface AIClassification {
   createdAt: string
 }
 
+/**
+ * A ticket that already says roughly what you are typing.
+ *
+ * Everything here comes out of the vector's own metadata, so the search is one hop and does not
+ * wait on work-service.
+ */
+export interface SimilarIssue {
+  issueId: number
+  issueKey: string
+  title: string
+  projectKey: string
+  /** 0 to 1, where 1 is identical. Shown as a percentage so a borderline match can be judged. */
+  score: number
+}
+
+/** One bar on a chart. The same shape for every distribution, so one component draws them all. */
+export interface CountByLabel {
+  label: string
+  count: number
+}
+
+export interface Dashboard {
+  totalIssues: number
+  classifiedIssues: number
+  /** Suggestions nobody has accepted or rejected yet. The queue of human work. */
+  awaitingReview: number
+  /**
+   * Percentage, or null when nobody has judged a suggestion yet. Null and 0 mean very different
+   * things here — "nobody has checked" versus "the AI is always wrong".
+   */
+  aiAgreementRate: number | null
+  byType: CountByLabel[]
+  byPriority: CountByLabel[]
+  byStatus: CountByLabel[]
+  /** From what the AI read out of each ticket. There is no team field on an issue. */
+  byTeam: CountByLabel[]
+  byEffort: CountByLabel[]
+}
+
 /** What POST /auth/register and POST /auth/login both return. */
 export interface TokenResponse {
   token: string

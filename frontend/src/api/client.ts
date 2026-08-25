@@ -5,6 +5,8 @@ import type {
   Board,
   BoardView,
   CurrentUser,
+  Dashboard,
+  SimilarIssue,
   FieldError,
   Issue,
   IssueAssignment,
@@ -76,7 +78,13 @@ async function request<T>(path: string, options?: RequestOptions): Promise<T> {
   let response: Response
   try {
     response = await fetch(`${BASE_URL}${path}`, { ...init, headers })
-  } catch {
+  } catch (cause) {
+    // An abort is not a failure — it is this code cancelling a request it no longer wants, which
+    // the duplicate search does on every keystroke. Rethrown as-is so callers can ignore it;
+    // dressing it up as UNREACHABLE would put "cannot reach the server" on screen while typing.
+    if (cause instanceof DOMException && cause.name === 'AbortError') {
+      throw cause
+    }
     // fetch only rejects when the request never completed: gateway down, DNS, CORS block.
     throw new ApiError({
       timestamp: new Date().toISOString(),
@@ -160,6 +168,21 @@ export const api = {
 
   /** Confirms a stored token is still accepted before the app renders a board with it. */
   me: () => request<CurrentUser>('/auth/me'),
+
+  /**
+   * Tickets that already say roughly this. Answers while somebody is still typing, so it takes an
+   * AbortSignal: a slow reply for text that has since changed must not overwrite a newer one.
+   */
+  similarIssues: (text: string, projectKey: string, signal: AbortSignal) =>
+    request<SimilarIssue[]>(
+      `/similar?text=${encodeURIComponent(text)}&projectKey=${encodeURIComponent(projectKey)}`,
+      { signal },
+    ),
+
+  dashboard: () => request<Dashboard>('/dashboard'),
+
+  /** Pushes every issue back through the classifier. ADMIN only. */
+  reindexIssues: () => request<{ queued: number }>('/admin/issues/reindex', { method: 'POST' }),
 
   listProjects: () => request<Project[]>('/projects'),
 
