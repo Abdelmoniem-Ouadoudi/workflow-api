@@ -104,6 +104,16 @@ The backend must be finished at every step. Not a demo, not a sketch.
 - If something must be deferred, write it in `docs/BACKLOG.md` with the reason. Never leave it silent.
 - Do not move to the next entity until the current slice is complete and compiles.
 
+## Tests
+`mvn test` runs the unit tests and needs nothing running — no database, no broker. Seconds.
+`mvn test -Pall-tests` also boots the application, which needs the whole stack up.
+
+They cover the rules the schema and the framework cannot enforce: the transition map, the
+auto-apply threshold, the agreement-rate arithmetic, which Groq failures are permanent, what goes
+into a token. Not getters, not mappers.
+
+`scripts/smoke-test.sh` is the other half — 153 cases through the gateway against a running system.
+
 ## After every task
 1. Two or three lines: what was built, and the one decision that mattered.
 2. Append the decision and its reason to `docs/QUIZ.md` so I can revise later.

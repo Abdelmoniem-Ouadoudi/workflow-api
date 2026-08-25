@@ -101,6 +101,33 @@
 
 	<build>
 		<plugins>
+			<!--
+				Defines ${org.mockito:mockito-core:jar}, used by surefire below. Without this the
+				property is passed to the JVM as a literal string and the forked VM refuses to start.
+			-->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-dependency-plugin</artifactId>
+				<executions>
+					<execution>
+						<goals>
+							<goal>properties</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-surefire-plugin</artifactId>
+				<configuration>
+					<!--
+						Mockito attaches an agent to mock final classes. It can still attach to
+						itself today, but the JDK is removing that and Mockito warns on every run.
+						Passing it explicitly is the documented fix.
+					-->
+					<argLine>-javaagent:${org.mockito:mockito-core:jar}</argLine>
+				</configuration>
+			</plugin>
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>

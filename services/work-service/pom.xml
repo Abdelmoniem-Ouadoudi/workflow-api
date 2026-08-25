@@ -21,6 +21,12 @@
 		<springdoc.version>3.0.0</springdoc.version>
 		<!-- 2025.1.x is the release train that targets Boot 4.0.x. 2025.0.x does not. -->
 		<spring-cloud.version>2025.1.1</spring-cloud.version>
+		<!--
+			Tests excluded from a plain `mvn test`. A property rather than a literal so the
+			all-tests profile below can clear it; surefire's excludedGroups beats -Dgroups, so
+			without this the exclusion could not be lifted from the command line at all.
+		-->
+		<excluded.test.groups>integration</excluded.test.groups>
 	</properties>
 	<dependencies>
 		<dependency>
@@ -127,6 +133,42 @@
 
 	<build>
 		<plugins>
+			<!--
+				Defines ${org.mockito:mockito-core:jar}, used by surefire below. Without this the
+				property is passed to the JVM as a literal string and the forked VM refuses to start.
+			-->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-dependency-plugin</artifactId>
+				<executions>
+					<execution>
+						<goals>
+							<goal>properties</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-surefire-plugin</artifactId>
+				<configuration>
+					<!--
+						Mockito needs to attach an agent to mock final classes. It can still attach
+						to itself today, but the JDK is removing that, and Mockito warns on every
+						run. Passing it explicitly is the documented fix and silences a warning that
+						would otherwise be ignored until it became a failure.
+					-->
+					<argLine>-javaagent:${org.mockito:mockito-core:jar}</argLine>
+					<!--
+						The @SpringBootTest that boots the whole application needs Postgres,
+						RabbitMQ and Eureka running. Excluded by default so `mvn test` means "the
+						code is sound" rather than "the machine happens to have the stack up" - a
+						suite that fails for the wrong reason is one people stop running.
+						Run everything with: mvn test -Pall-tests
+					-->
+					<excludedGroups>${excluded.test.groups}</excludedGroups>
+				</configuration>
+			</plugin>
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
@@ -191,5 +233,20 @@
 			</plugin>
 		</plugins>
 	</build>
+
+	<profiles>
+		<!--
+			Everything, including the @SpringBootTest that boots the whole application. Needs the
+			stack up first: docker compose up -d, then discovery-service.
+
+				mvn test -Pall-tests
+		-->
+		<profile>
+			<id>all-tests</id>
+			<properties>
+				<excluded.test.groups></excluded.test.groups>
+			</properties>
+		</profile>
+	</profiles>
 
 </project>

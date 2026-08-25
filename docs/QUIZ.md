@@ -987,3 +987,71 @@ which rounded to zero.
 The script now counts off the assigned variable — `$parsed -is [array]` then `.Count` — which is
 version-proof. Worth knowing because the wrong answer was plausible: it pointed at the feature
 rather than at the tool measuring it.
+
+---
+
+# The test suite
+
+## What is tested, and what deliberately is not
+
+78 unit tests. They cover one thing: **the rules that neither the schema nor the framework can
+enforce, and that a reader cannot verify by looking.**
+
+| Tested | Why it earns a test |
+|---|---|
+| `ALLOWED_TRANSITIONS` | `status` is a varchar; nothing in the database stops TO_DO jumping to DONE |
+| the auto-apply threshold | a judgement about when to trust a model unattended, invisible in the data |
+| classification idempotency | RabbitMQ delivers at least once, and the lookup-then-update is the only thing making a redelivery harmless |
+| the agreement rate | one arithmetic slip from being a lie, and the PENDING exclusion is a rule rather than a formula |
+| which Groq failures are permanent | this is the dead-letter queue's brain, and it was already wrong once |
+| the stub's confidence | it must stay below the auto-apply threshold, or keyword matching starts rewriting tickets |
+| JWT claims | three other services depend on those exact claim names |
+| registration's write order | the order has a consequence, documented in BACKLOG 13 |
+
+Not tested, and on purpose: getters, mappers, and anything where the test would restate the code.
+A suite that asserts `setName` sets the name is a suite nobody reads.
+
+## Why `mvn test` needs nothing running
+
+Every one of the 78 is a plain unit test with Mockito. No database, no broker, no Spring context —
+seconds on a clean checkout.
+
+The one test that boots the whole application, `contextLoads`, is tagged `integration` and excluded
+by default. It genuinely needs Postgres, RabbitMQ and Eureka, so on a fresh machine it would fail
+because nothing is up rather than because anything is wrong. **A suite that fails for the wrong
+reason is one people stop running**, and a suite people stop running is worse than none, because it
+looks like coverage.
+
+```
+mvn test               the unit tests, no infrastructure
+mvn test -Pall-tests   everything, with the stack up first
+```
+
+It is a Maven profile rather than `-Dgroups=integration` because surefire's `excludedGroups` beats
+`-Dgroups` on the command line — the exclusion could not otherwise be lifted at all.
+
+## Why the failure-routing test names the SDK's exceptions explicitly
+
+`GroqFailureRoutingTest` exists because that logic was already wrong once and nothing caught it.
+
+The first version checked Spring's `HttpClientErrorException`, but Spring AI 2.0 is built on the
+official openai-java SDK and throws `com.openai.errors.*`. Nothing matched, every failure fell
+through to "unexpected, retry", and a rejected API key was retried three times per ticket instead
+of being parked. The code read correctly and did nothing.
+
+Naming `UnauthorizedException`, `RateLimitException` and the rest in a test means the same silent
+mismatch would fail a build instead of a defence.
+
+## Two tests that were wrong before the code was
+
+Worth admitting, because both were caught by running them rather than by reading them.
+
+The stub's missing-information test used a description containing "when I use it" — and "when i" is
+one of the phrases the stub reads as an attempt to describe reproduction steps. The test asserted
+the opposite of what it claimed. Fixed by choosing wording that avoids every trigger phrase, with a
+comment saying why, plus a second test for the case where the steps genuinely are there.
+
+The JWT test called `decoded.getIssuer()`, which insists on a URL, while this issuer is the plain
+name `auth-service`. Read as a string instead. That is fine — the resource servers compare it as a
+string too — but it is worth knowing before somebody "fixes" the issuer into a URL and breaks three
+services.
