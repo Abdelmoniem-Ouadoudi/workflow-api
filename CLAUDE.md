@@ -79,6 +79,8 @@ every start after that is cached and offline. Run it once with internet before a
 - `docs/DATA-MODEL.md` — the tables, their columns and every foreign key.
 - `docs/ARCHITECTURE-NOTES.md` — binding rules for M2/M3 (correlation id, DLQ, circuit breakers)
   and the decisions to state out loud at the defence. Apply these when building each service.
+- `docs/services/` — one page per service, plain English, with diagrams. Revision material for the
+  defence, not a spec. If a service changes, its page changes too.
 
 ## Who writes code
 **You write the code. Do not stop to teach me.**

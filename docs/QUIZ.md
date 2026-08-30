@@ -1127,3 +1127,16 @@ as if it were the contract. They now assert that a model version is present at a
 review status is one of the two outcomes a fresh classification can legitimately have. The
 accept test captures whatever was suggested and checks that those values reached the issue, rather
 than pinning one model's judgement.
+
+## Why there is a page per service in `docs/services/`
+
+The existing docs describe the system as a whole: the milestones, the data model, the architecture
+diagram, the binding rules. None of them answer the question a jury actually asks, which is *"what
+does this one service do, and why is it separate?"*
+
+So each service gets one page in plain English with its own diagram. They are revision material,
+not a second specification — every claim on them is already true in the code, and each page ends
+with the one sentence to say out loud about that service.
+
+The split is deliberate: a page per service matches how a defence is questioned, one box on the
+architecture diagram at a time.
