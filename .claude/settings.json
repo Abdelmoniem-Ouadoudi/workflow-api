@@ -10,7 +10,13 @@
       "Bash(JAVA_HOME=\"/c/Program Files/Java/jdk-21.0.11\" cmd //c mvnw.cmd -q compile)",
       "Bash(echo \"EXIT=$?\")",
       "PowerShell(Set-Location \"c:\\\\Users\\\\a.ouadoudi\\\\Desktop\\\\workflow-api\\\\services\\\\work-service\"; $env:JAVA_HOME = \"C:\\\\Program Files\\\\Java\\\\jdk-21.0.11\"; .\\\\mvnw.cmd -q compile)",
-      "Bash(npm install *)"
+      "Bash(npm install *)",
+      "PowerShell(docker exec workflow-db psql -U workflow -d workflow -c \"SELECT id, issue_key FROM issue WHERE id IN \\(65,66,70\\);\")",
+      "PowerShell(docker exec workflow-db psql -U workflow -d workflow -c \"SELECT id, project_key, name FROM project ORDER BY id;\")",
+      "PowerShell(docker exec workflow-db psql -U workflow -d vectordb -c \"SELECT metadata->>'issueId' AS issue_id, metadata->>'issueKey' AS issue_key FROM issue_vector WHERE metadata->>'issueId' = '86';\")",
+      "PowerShell(docker exec workflow-db psql -U workflow -d vectordb -c \"SELECT metadata->>'issueId' AS issue_id, metadata->>'issueKey' AS issue_key, metadata->>'projectKey' AS project FROM issue_vector ORDER BY \\(metadata->>'issueId'\\)::int DESC LIMIT 8;\")",
+      "PowerShell(docker exec workflow-db psql -U workflow -d workflow -c \"SELECT c.issue_id, i.issue_key, c.model_version, c.review_status, c.confidence, c.created_at FROM ai_classification c JOIN issue i ON i.id = c.issue_id ORDER BY c.issue_id DESC LIMIT 8;\")",
+      "PowerShell(docker exec workflow-db psql -U workflow -d workflow -c \"SELECT i.id, i.issue_key, i.title, i.description IS NULL AS desc_is_null, i.created_at, c.model_version FROM issue i LEFT JOIN ai_classification c ON c.issue_id=i.id WHERE i.id IN \\(86,87,88\\);\")"
     ]
   }
 }
