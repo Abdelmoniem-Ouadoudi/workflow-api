@@ -89,6 +89,10 @@ public class SecurityConfig {
                         // mints for its own call to work-service has no user behind it and no uid
                         // claim, so it is refused here rather than being allowed to read nothing.
                         .requestMatchers("/auth/me").hasAnyRole("DEVELOPER", "MANAGER", "ADMIN")
+                        // Who exists on the platform, what they are, and whether they may log in.
+                        // Not who is on which project - that is the project manager's, and it
+                        // lives in work-service where the projects are.
+                        .requestMatchers("/admin/accounts/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 // Needed for GET /auth/me: this service verifies the tokens it issued.
                 .oauth2ResourceServer(oauth2 -> oauth2.jwt(jwt -> jwt

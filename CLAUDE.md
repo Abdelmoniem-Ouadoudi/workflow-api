@@ -55,6 +55,11 @@ Databases, all in one Postgres process (image `pgvector/pgvector:pg16` since M4)
 **Start order:** discovery → work → auth → classification → gateway. Registration takes up to
 ~30s to propagate; `http://localhost:8761` must list all four before the gateway can route.
 
+**Signing in (since M5).** `POST /auth/register` no longer picks a role and no longer returns a
+token: the account is `PENDING` until an admin approves it. The first admin is seeded by a
+migration — **`admin` / `admin12345`** — and it is the only account nobody approved. Log in as that
+one, approve people at `/admin/users`, and they can then sign in.
+
 **No Groq key?** `app.classification.provider` defaults to `stub`, which is keyword rules, not AI.
 It says so on startup and stamps `modelVersion=stub-v1` on every suggestion. For the real thing:
 

@@ -5,6 +5,8 @@ import ma.dev.workflow.dashboard.dto.CountByLabel;
 import ma.dev.workflow.dashboard.dto.DashboardDTO;
 import ma.dev.workflow.dashboard.repositories.DashboardRepository;
 import ma.dev.workflow.dashboard.service.IDashboardService;
+import ma.dev.workflow.common.security.ProjectAccess;
+import ma.dev.workflow.project.repositories.ProjectRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,15 +20,39 @@ import java.util.stream.Collectors;
 public class DashboardService implements IDashboardService {
 
     private final DashboardRepository dashboardRepository;
+    private final ProjectRepository projectRepository;
+    private final ProjectAccess projectAccess;
 
-    public DashboardService(DashboardRepository dashboardRepository) {
+    public DashboardService(DashboardRepository dashboardRepository,
+                            ProjectRepository projectRepository,
+                            ProjectAccess projectAccess) {
         this.dashboardRepository = dashboardRepository;
+        this.projectRepository = projectRepository;
+        this.projectAccess = projectAccess;
     }
 
+    /**
+     * The same numbers as before, over the projects the caller is on.
+     *
+     * <p>This is what BACKLOG item 36 was waiting for. The question it parked on was "type
+     * distribution across a team means something different from type distribution in one project,
+     * so which is this screen for" — and membership settles it without a query parameter: the
+     * screen is for your work. An administrator, who is on no project but may see all of them, gets
+     * the system-wide view that everybody used to get.
+     */
     @Override
     public DashboardDTO load() {
-        List<CountByLabel> byReviewStatus = dashboardRepository.countByReviewStatus();
-        Map<String, Long> reviews = byReviewStatus.stream()
+        List<Long> projectIds = projectAccess.isAdmin()
+                ? projectRepository.findAllIds()
+                : projectAccess.myProjectIds();
+
+        // Nothing to count, and asking anyway would send "in ()" to the database. A person on no
+        // projects sees an honest empty dashboard rather than an error.
+        if (projectIds.isEmpty()) {
+            return empty();
+        }
+
+        Map<String, Long> reviews = dashboardRepository.countByReviewStatus(projectIds).stream()
                 .collect(Collectors.toMap(CountByLabel::label, CountByLabel::count,
                         Long::sum));
 
@@ -36,15 +62,26 @@ public class DashboardService implements IDashboardService {
         long pending = countOf(reviews, ReviewStatus.PENDING);
 
         return new DashboardDTO(
-                dashboardRepository.count(),
-                dashboardRepository.countClassifications(),
+                dashboardRepository.countIssues(projectIds),
+                dashboardRepository.countClassifications(projectIds),
                 pending,
                 agreementRate(autoApplied, confirmed, overridden),
-                dashboardRepository.countByType(),
-                dashboardRepository.countByPriority(),
-                dashboardRepository.countByStatus(),
-                dashboardRepository.countByTeam(),
-                dashboardRepository.countByEffort());
+                dashboardRepository.countByType(projectIds),
+                dashboardRepository.countByPriority(projectIds),
+                dashboardRepository.countByStatus(projectIds),
+                dashboardRepository.countByTeam(projectIds),
+                dashboardRepository.countByEffort(projectIds));
+    }
+
+    /**
+     * Zero issues, and a null agreement rate.
+     *
+     * <p>Null rather than zero for the same reason as {@link #agreementRate}: with nothing judged,
+     * "0%" would claim the model is always wrong.
+     */
+    private DashboardDTO empty() {
+        return new DashboardDTO(0L, 0L, 0L, null,
+                List.of(), List.of(), List.of(), List.of(), List.of());
     }
 
     /**

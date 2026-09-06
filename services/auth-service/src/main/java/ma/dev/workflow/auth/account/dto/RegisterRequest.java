@@ -2,13 +2,17 @@ package ma.dev.workflow.auth.account.dto;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
-import ma.dev.workflow.auth.account.models.enums.Role;
 
 /**
  * The email is validated here but never stored here: it is forwarded to work-service, which owns
  * the profile. Keeping a copy would mean two rows to change when someone updates their address.
+ *
+ * <p><strong>There is no role field, and its absence is the point.</strong> Until M5 there was one,
+ * on an endpoint open to anybody, which meant the sentence "anyone on the internet can make
+ * themselves an administrator of this system" was literally true. Everyone now registers as a
+ * PENDING DEVELOPER and an administrator decides what they are — which is the whole reason the
+ * approval queue exists.
  */
 public record RegisterRequest(
 
@@ -23,9 +27,6 @@ public record RegisterRequest(
 
         @NotBlank(message = "Password is required")
         @Size(min = 8, max = 72, message = "Password must be between 8 and 72 characters")
-        String password,
-
-        @NotNull(message = "Role is required")
-        Role role
+        String password
 ) {
 }

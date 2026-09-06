@@ -48,6 +48,16 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Authenticated, but not this person's to touch. Thrown from a service rather than by the
+     * filter chain, because whether you may read an issue depends on the project it turns out to
+     * belong to, which is not knowable from the URL.
+     */
+    @ExceptionHandler(ForbiddenException.class)
+    public ResponseEntity<ApiError> handleForbidden(ForbiddenException ex, HttpServletRequest request) {
+        return build(HttpStatus.FORBIDDEN, ex.getCode(), ex.getMessage(), request);
+    }
+
+    /**
      * Someone else changed the row first. React shows "reload, this issue changed".
      * Kept separate from the constraint conflict below because the UI reacts differently.
      */

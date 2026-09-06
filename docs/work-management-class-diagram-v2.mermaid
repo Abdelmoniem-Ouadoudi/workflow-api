@@ -9,6 +9,7 @@ classDiagram
         -email: String
         -password: String
         -role: Role
+        -status: AccountStatus
         +login() boolean
         +logout() void
     }
@@ -18,9 +19,25 @@ classDiagram
         -key: String
         -name: String
         -description: String
+        -joinCode: String
         -createdAt: Date
         +addMember(user) void
         +removeMember(user) void
+    }
+
+    class ProjectMember {
+        -id: int
+        -role: ProjectRole
+        -joinedAt: Date
+    }
+
+    class ProjectJoinRequest {
+        -id: int
+        -status: JoinRequestStatus
+        -requestedAt: Date
+        -decidedAt: Date
+        +approve() void
+        +reject() void
     }
 
     class Board {
@@ -102,6 +119,26 @@ classDiagram
         ADMIN
     }
 
+    class ProjectRole {
+        <<enumeration>>
+        PROJECT_MANAGER
+        MEMBER
+    }
+
+    class JoinRequestStatus {
+        <<enumeration>>
+        PENDING
+        APPROVED
+        REJECTED
+    }
+
+    class AccountStatus {
+        <<enumeration>>
+        PENDING
+        ACTIVE
+        DISABLED
+    }
+
     class Status {
         <<enumeration>>
         TO_DO
@@ -148,7 +185,14 @@ classDiagram
 
     %% ===== Core relationships =====
 
-    User "1..*" -- "0..*" Project : member of
+    %% Membership is an association class: the link itself carries a role.
+    %% A user is a MEMBER of one project and the PROJECT_MANAGER of another.
+    Project "1" *-- "0..*" ProjectMember : has
+    User    "1" -- "0..*" ProjectMember : is
+    Project "1" *-- "0..*" ProjectJoinRequest : receives
+    User    "1" -- "0..*" ProjectJoinRequest : asks
+    ProjectJoinRequest ..> ProjectMember : creates when approved
+
     Project "1" *-- "0..*" Issue : contains
     Project "1" -- "1..*" Board : has
     Board "1" o-- "0..*" Issue : organizes
@@ -170,6 +214,9 @@ classDiagram
     %% ===== Enum anchors =====
 
     User ..> Role
+    User ..> AccountStatus
+    ProjectMember ..> ProjectRole
+    ProjectJoinRequest ..> JoinRequestStatus
     Issue ..> Status
     Issue ..> Priority
     Issue ..> IssueType

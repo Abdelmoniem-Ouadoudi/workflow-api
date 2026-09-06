@@ -2,13 +2,58 @@
 
 **Port 8082 · database `authdb` · Spring Security + JWT**
 
-Three endpoints. It owns accounts and passwords, and it is the only place a token is created.
+It owns accounts and passwords, it is the only place a token is created, and since M5 it is also
+where an administrator decides who exists.
 
 | Endpoint | Token needed | What it does |
 |---|---|---|
-| `POST /auth/register` | no | Creates an account **and** a work-service profile. Returns a token. |
-| `POST /auth/login` | no | Checks the password. Returns a token. |
+| `POST /auth/register` | no | Creates a **PENDING** account and a work-service profile. Returns **no token**. |
+| `POST /auth/login` | no | Checks the password. Returns a token — unless the account is PENDING or DISABLED. |
 | `GET /auth/me` | yes | Turns a token back into a user, with no database query. |
+| `GET /admin/accounts` | ADMIN | Everybody, or `?status=PENDING` for the approval queue. |
+| `POST /admin/accounts/{id}/approve` | ADMIN | PENDING → ACTIVE, with the role the administrator chose. |
+| `POST /admin/accounts/{id}/reject` | ADMIN | PENDING → DISABLED. The row is kept. |
+| `PUT /admin/accounts/{id}/role` | ADMIN | Changes the global role, and mirrors it. |
+| `POST /admin/accounts/{id}/enable` · `/disable` | ADMIN | ACTIVE ⇄ DISABLED. |
+
+Note what is **not** here: putting people on projects. That is the *chef de projet*'s, in
+work-service. An administrator who had to assign every person to every project would be the
+bottleneck the project role exists to remove.
+
+---
+
+## The hole M5 closed
+
+`RegisterRequest` used to carry a `role`, on an endpoint the gateway leaves open. In one sentence:
+
+> **Anyone on the internet could register themselves as an administrator of this system.**
+
+The field is gone. Everybody registers as a `PENDING` `DEVELOPER` and an administrator says what
+they are. Which raises the obvious question — answer it before the jury asks:
+
+> **Where does the first administrator come from?** A migration seeds one. It is the only row in
+> `account` that nobody approved, because a chain of approvals has to start outside itself.
+> `admin` / `admin12345`, and the changeSet runs only when the table is empty.
+
+### `is_active` became `status`
+
+A boolean could say "may not log in". It could not say **why**, and the two reasons need different
+sentences:
+
+| Status | Login answers | What the person reads |
+|---|---|---|
+| `PENDING` | `403 ACCOUNT_PENDING` | "waiting for an administrator to approve it" |
+| `ACTIVE` | a token | — |
+| `DISABLED` | `403 ACCOUNT_DISABLED` | "this account is deactivated" |
+
+Merging them would tell somebody who signed up ten seconds ago that their account was deactivated,
+which reads as a punishment for signing up.
+
+The mechanism is two Spring Security flags rather than a custom checker:
+`.accountLocked(status == PENDING).disabled(status == DISABLED)`, which throw `LockedException` and
+`DisabledException`. Mapping PENDING onto "locked" is a small stretch of the word — nobody locked
+anything — but it is the standard slot, it costs one line, and the handler turns it into the right
+message.
 
 ---
 
@@ -33,14 +78,19 @@ sequenceDiagram
     participant W as work-service
     participant DB as authdb
 
-    B->>A: POST /auth/register {username, password, role}
+    B->>A: POST /auth/register {username, email, password}
     A->>A: hash the password (BCrypt)
     A->>A: mint a SERVICE token (60 seconds)
-    A->>W: POST /users  (Authorization: SERVICE token)
+    A->>W: POST /users {role: DEVELOPER, active: false}
     W-->>A: 201 { id: 7 }
-    A->>DB: save account, workUserId = 7
-    A-->>B: 201 { token, userId: 7, username, role }
+    A->>DB: save account, workUserId = 7, status = PENDING
+    A-->>B: 202 { username, status: PENDING, message }
 ```
+
+**No role in, and no token out.** The role is not the registrant's to choose, and a token would be
+a key to a door that is locked — the account exists and cannot be used until an administrator
+approves it. The profile is created **inactive** in work-service too, so somebody nobody has
+approved cannot be picked out of an assignee dropdown and handed work.
 
 **Two decisions live in that diagram.**
 
@@ -87,7 +137,7 @@ leaked it would be useless within the minute.
 | `iss` | Every service checks it. A valid signature from another system sharing the secret is still not our token. |
 | `sub` | The username. For **reading logs**, not for joining rows. |
 | `uid` | **The claim that makes the system work.** The work-service user id. An issue's reporter is a work-service id, so carrying it here means no service ever calls back to ask "who is this?". |
-| `role` | work-service turns it into `ROLE_DEVELOPER` so `hasRole("...")` works. |
+| `role` | work-service turns it into `ROLE_DEVELOPER` so `hasRole("...")` works. This is the **global** role only — what somebody is on a *project* is read from the database, because it changes while people work and a token cannot be recalled. |
 | `exp` | One hour. Long enough not to interrupt someone mid-task, short enough that a leaked token dies on its own. |
 
 Signed with **HS256** — one shared secret, and `JwtConfig` refuses to start if it is under 32
@@ -147,6 +197,7 @@ name for calls to `lb://work-service`.
 ## Sentence for the defence
 
 > auth-service owns accounts and is the only issuer of tokens. Registration is not transactional on
-> purpose, because a transaction must never be held open across a call to another service. And it
+> purpose, because a transaction must never be held open across a call to another service. It
 > issues itself a 60-second SERVICE token to create the profile, so `POST /users` stays locked
-> instead of being left open for registration.
+> instead of being left open for registration. And since M5 registration cannot choose its own
+> role — it used to be able to, which meant anybody could make themselves an administrator.

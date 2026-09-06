@@ -1,16 +1,10 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { ApiError, api } from '../api/client'
 import type { CountByLabel, Dashboard as DashboardData } from '../api/types'
-import type { Session } from '../auth/session'
 import { Notice } from './Notice'
 import type { NoticeState } from './Notice'
 import { WhoAmI } from './WhoAmI'
-
-interface Props {
-  session: Session
-  onLeave: () => void
-  onSignOut: () => void
-}
 
 /**
  * What the AI layer has actually done, in numbers.
@@ -19,7 +13,7 @@ interface Props {
  * not justify a dependency, and a chart library would be the first thing in this project that
  * could not be explained line by line.
  */
-export function Dashboard({ session, onLeave, onSignOut }: Props) {
+export function Dashboard() {
   const [data, setData] = useState<DashboardData | null>(null)
   const [notice, setNotice] = useState<NoticeState | null>(null)
   const [loading, setLoading] = useState(true)
@@ -52,14 +46,15 @@ export function Dashboard({ session, onLeave, onSignOut }: Props) {
 
       <header className="masthead">
         <div className="masthead__top">
-          <button type="button" className="panel__back" onClick={onLeave}>
+          <Link className="panel__back" to="/projects">
             ← Projects
-          </button>
-          <WhoAmI session={session} onSignOut={onSignOut} />
+          </Link>
+          <WhoAmI />
         </div>
         <h1 className="masthead__title">Insights</h1>
         <p className="masthead__sub">
-          What the classifier has read, and how often it was right.
+          What the classifier has read, and how often it was right — across the projects you are
+          on. An administrator sees every project.
         </p>
         <div className="masthead__rail" aria-hidden="true" />
       </header>

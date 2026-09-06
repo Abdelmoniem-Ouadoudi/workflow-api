@@ -2,6 +2,8 @@ package ma.dev.workflow.issue.service.impl;
 
 import ma.dev.workflow.common.exception.BusinessRuleException;
 import ma.dev.workflow.common.security.CurrentUser;
+import ma.dev.workflow.common.security.ProjectAccess;
+import ma.dev.workflow.project.models.Project;
 import ma.dev.workflow.issue.dto.IssueDTO;
 import ma.dev.workflow.issue.dto.IssueStatusUpdateDTO;
 import ma.dev.workflow.issue.dto.mapper.IssueMapper;
@@ -58,8 +60,12 @@ class IssueStatusTransitionTest {
                 mock(ma.dev.workflow.board.repositories.BoardRepository.class),
                 mock(ma.dev.workflow.sprint.repositories.SprintRepository.class),
                 mock(ma.dev.workflow.user.repositories.UserRepository.class),
+                mock(ma.dev.workflow.project.repositories.ProjectMemberRepository.class),
                 issueMapper,
                 mock(CurrentUser.class),
+                // A mock that refuses nothing: this test is about the transition map, not about
+                // who is allowed to move a card. ProjectAccessTest covers that half.
+                mock(ProjectAccess.class),
                 mock(ApplicationEventPublisher.class));
 
         when(issueMapper.fromModel(any())).thenReturn(new IssueDTO());
@@ -146,8 +152,14 @@ class IssueStatusTransitionTest {
     }
 
     private Issue issueAt(Status status) {
+        // The project is here only because updateStatus now reads it to check membership.
+        Project project = new Project();
+        project.setId(1L);
+        project.setKey("TEST");
+
         Issue issue = new Issue();
         issue.setId(1L);
+        issue.setProject(project);
         issue.setIssueKey("TEST-1");
         issue.setStatus(status);
         return issue;

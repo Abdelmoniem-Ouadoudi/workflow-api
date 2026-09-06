@@ -1,0 +1,56 @@
+databaseChangeLog:
+  - changeSet:
+      id: 5.0.4
+      author: abdelmoniem
+      comment: >
+        The one account nobody approved.
+
+        Registration no longer lets the caller choose a role - that was a public endpoint on which
+        anyone could make themselves an ADMIN - so every account is created as a PENDING DEVELOPER
+        and an administrator promotes it. Which leaves the obvious hole: on an empty database there
+        is no administrator to do the promoting, and no way to make one.
+
+        This is that administrator. Username 'admin', password 'admin12345', BCrypt cost 10.
+        A password in a migration is not how a real deployment does it - see docs/BACKLOG.md - but
+        the alternative is a fresh clone that nobody can log into at all.
+
+        work_user_id = 1 couples this to work-service's changeSet 1.1.1, in the other database:
+        1.1.1 inserts 'admin' into an empty app_user whose id is autoIncrement, so it gets 1. No
+        foreign key can check that across databases, which is the service boundary being visible
+        again rather than a shortcut.
+      preConditions:
+        # Only ever on a database with no accounts. A system that already has people in it has an
+        # administrator among them, and adding a known password to it would be a back door.
+        - onFail: MARK_RAN
+        - sqlCheck:
+            expectedResult: 0
+            sql: SELECT count(*) FROM account
+      changes:
+        - insert:
+            tableName: account
+            columns:
+              - column:
+                  name: username
+                  value: admin
+              - column:
+                  name: password_hash
+                  value: $2a$10$Ei/7JDYMi9IZWIL3nxIKJesqWnbz5Z4Ydbx6FR2Vh5pot5Ys1zyLK
+              - column:
+                  name: role
+                  value: ADMIN
+              - column:
+                  name: work_user_id
+                  valueNumeric: 1
+              - column:
+                  name: status
+                  value: ACTIVE
+              - column:
+                  name: created_at
+                  valueComputed: CURRENT_TIMESTAMP
+              - column:
+                  name: updated_at
+                  valueComputed: CURRENT_TIMESTAMP
+      rollback:
+        - delete:
+            tableName: account
+            where: username = 'admin'

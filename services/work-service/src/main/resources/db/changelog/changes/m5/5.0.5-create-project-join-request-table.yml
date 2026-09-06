@@ -1,0 +1,97 @@
+databaseChangeLog:
+  - changeSet:
+      id: 5.0.5
+      author: abdelmoniem
+      comment: >
+        Somebody was given a project's join code and is asking to be let in. Rejected rows are
+        kept rather than deleted: who asked and who said no is the record, and it is what a
+        second request has to be checked against.
+      changes:
+        - createTable:
+            tableName: project_join_request
+            columns:
+              - column:
+                  name: id
+                  type: bigint
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: project_id
+                  type: bigint
+                  constraints:
+                    nullable: false
+              - column:
+                  name: user_id
+                  type: bigint
+                  constraints:
+                    nullable: false
+              - column:
+                  name: status
+                  type: varchar(20)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: requested_at
+                  type: timestamp
+                  constraints:
+                    nullable: false
+              # Both nullable on purpose: a pending request genuinely has no decider yet.
+              # NOT NULL would need a placeholder row meaning "nobody", which is a lie in the
+              # schema told to avoid a null in Java.
+              - column:
+                  name: decided_at
+                  type: timestamp
+              - column:
+                  name: decided_by_user_id
+                  type: bigint
+
+        - addForeignKeyConstraint:
+            constraintName: fk_join_request_project
+            baseTableName: project_join_request
+            baseColumnNames: project_id
+            referencedTableName: project
+            referencedColumnNames: id
+            onDelete: CASCADE
+
+        - addForeignKeyConstraint:
+            constraintName: fk_join_request_user
+            baseTableName: project_join_request
+            baseColumnNames: user_id
+            referencedTableName: app_user
+            referencedColumnNames: id
+            onDelete: RESTRICT
+
+        - addForeignKeyConstraint:
+            constraintName: fk_join_request_decided_by
+            baseTableName: project_join_request
+            baseColumnNames: decided_by_user_id
+            referencedTableName: app_user
+            referencedColumnNames: id
+            onDelete: RESTRICT
+
+        - createIndex:
+            indexName: idx_join_request_project_status
+            tableName: project_join_request
+            columns:
+              - column:
+                  name: project_id
+              - column:
+                  name: status
+
+  - changeSet:
+      id: 5.0.6
+      author: abdelmoniem
+      comment: >
+        One OPEN request per person per project, and any number of settled ones - somebody may
+        leave a project and ask again later. The same reasoning as uk_sprint_one_active_per_board:
+        a Java check loses the race when two double-clicks both read "no pending request", both
+        insert, and the manager sees the same request twice with no error anywhere. The Java check
+        is for the error message; the index is for the truth. PostgreSQL specific.
+      changes:
+        - sql:
+            sql: >
+              CREATE UNIQUE INDEX uq_join_request_pending
+                ON project_join_request (project_id, user_id) WHERE status = 'PENDING'
+            rollback: DROP INDEX uq_join_request_pending

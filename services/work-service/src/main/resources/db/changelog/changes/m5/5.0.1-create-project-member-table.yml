@@ -1,0 +1,74 @@
+databaseChangeLog:
+  - changeSet:
+      id: 5.0.1
+      author: abdelmoniem
+      comment: >
+        Who is on a project, and what they are on it. This is an association class rather than a
+        plain join table: it carries a role, because the same person is the manager of one project
+        and an ordinary member of another. That is why the project role cannot live on app_user.
+        A surrogate id instead of a composite primary key, so the entity matches every other one
+        in this schema; the unique constraint gives the same guarantee.
+      changes:
+        - createTable:
+            tableName: project_member
+            columns:
+              - column:
+                  name: id
+                  type: bigint
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: project_id
+                  type: bigint
+                  constraints:
+                    nullable: false
+              - column:
+                  name: user_id
+                  type: bigint
+                  constraints:
+                    nullable: false
+              - column:
+                  name: role
+                  type: varchar(20)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: joined_at
+                  type: timestamp
+                  constraints:
+                    nullable: false
+
+        # Composition: membership of a deleted project means nothing.
+        - addForeignKeyConstraint:
+            constraintName: fk_project_member_project
+            baseTableName: project_member
+            baseColumnNames: project_id
+            referencedTableName: project
+            referencedColumnNames: id
+            onDelete: CASCADE
+
+        # RESTRICT for the same reason as issue.reporter_id: users are deactivated, never deleted,
+        # so nothing may quietly erase the record of who was on a project.
+        - addForeignKeyConstraint:
+            constraintName: fk_project_member_user
+            baseTableName: project_member
+            baseColumnNames: user_id
+            referencedTableName: app_user
+            referencedColumnNames: id
+            onDelete: RESTRICT
+
+        - addUniqueConstraint:
+            constraintName: uq_project_member
+            tableName: project_member
+            columnNames: project_id, user_id
+
+        # Every signed-in request starts by asking "which projects are yours". Without this index
+        # that question is a full scan of the membership table, on every single call.
+        - createIndex:
+            indexName: idx_project_member_user
+            tableName: project_member
+            columns:
+              - column:
+                  name: user_id

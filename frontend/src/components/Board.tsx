@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Link, useParams } from 'react-router-dom'
 import { ApiError, api } from '../api/client'
 import type { BoardView, IssueSummary, Project, Status, User } from '../api/types'
 import { STATUSES } from '../api/types'
 import { canMove, holdReason } from '../api/workflow'
-import type { Session } from '../auth/session'
+import { useCurrentSession } from '../auth/SessionContext'
 import { Column } from './Column'
 import type { ColumnState } from './Column'
 import { IssueDetail } from './IssueDetail'
@@ -17,13 +18,19 @@ interface Lift {
   version: number
 }
 
-interface Props {
-  project: Project
-  session: Session
-  onLeave: () => void
-}
+/**
+ * The board for one project, now reached by URL.
+ *
+ * It loads the project from the id in the path rather than being handed one, which is what makes
+ * a board bookmarkable and linkable. It is also where the scoping shows: opening
+ * `/projects/9/board` for a project you are not on gets a 403 from work-service, not an empty
+ * board, and the notice says so.
+ */
+export function Board() {
+  const projectId = Number(useParams<{ id: string }>().id)
+  const session = useCurrentSession()
 
-export function Board({ project, session, onLeave }: Props) {
+  const [project, setProject] = useState<Project | null>(null)
   const [view, setView] = useState<BoardView | null>(null)
   const [users, setUsers] = useState<User[]>([])
   const [lift, setLift] = useState<Lift | null>(null)
@@ -32,24 +39,44 @@ export function Board({ project, session, onLeave }: Props) {
   const [openIssueId, setOpenIssueId] = useState<number | null>(null)
 
   const load = useCallback(async () => {
-    const boards = await api.listBoards(project.id)
+    const boards = await api.listBoards(projectId)
     if (boards.length === 0) throw new ApiError({
       timestamp: new Date().toISOString(),
       status: 404,
       code: 'NO_BOARD',
       message: 'This project has no board.',
-      path: `/boards?projectId=${project.id}`,
+      path: `/boards?projectId=${projectId}`,
     })
     setView(await api.boardView(boards[0].id))
-  }, [project.id])
+  }, [projectId])
 
   useEffect(() => {
     let cancelled = false
     async function start() {
       setLoading(true)
       try {
-        const [, people] = await Promise.all([load(), api.listUsers()])
-        if (!cancelled) setUsers(people.filter((user) => user.active))
+        // The assignee list is the project's members, not every user in the system. Two reasons:
+        // GET /users hands out everybody's email and is ADMIN-only since M5, and work can only be
+        // given to somebody who is on the project - work-service refuses the rest with 422.
+        const [opened, , members] = await Promise.all([
+          api.getProject(projectId),
+          load(),
+          api.projectMembers(projectId),
+        ])
+        if (cancelled) return
+        setProject(opened)
+        setUsers(
+          members
+            .filter((member) => member.active)
+            .map((member) => ({
+              id: member.userId,
+              username: member.username,
+              email: member.email,
+              role: member.globalRole,
+              active: member.active,
+              createdAt: member.joinedAt,
+            })),
+        )
       } catch (error) {
         if (!cancelled && error instanceof ApiError) {
           setNotice({ tone: 'stop', message: error.message })
@@ -62,7 +89,7 @@ export function Board({ project, session, onLeave }: Props) {
     return () => {
       cancelled = true
     }
-  }, [load])
+  }, [load, projectId])
 
   /** Moves a card between columns in local state so the board reacts before the server answers. */
   function relocate(current: BoardView, id: number, from: Status, to: Status): BoardView {
@@ -171,18 +198,34 @@ export function Board({ project, session, onLeave }: Props) {
     return <p className="page__loading">Loading the board…</p>
   }
 
+  // A refused or missing project leaves nothing to draw a board around. The notice already says
+  // why - "You are not a member of this project" comes straight from work-service.
+  if (project === null) {
+    return (
+      <main className="page">
+        <Notice notice={notice} onDismiss={() => setNotice(null)} />
+        <Link className="button button--quiet" to="/projects">
+          ← Projects
+        </Link>
+      </main>
+    )
+  }
+
   return (
     <main className="page">
       <Notice notice={notice} onDismiss={() => setNotice(null)} />
 
       <header className="panel">
-        <button type="button" className="panel__back" onClick={onLeave}>
+        <Link className="panel__back" to="/projects">
           ← Projects
-        </button>
+        </Link>
         <div className="panel__id">
           <span className="panel__key">{project.key}</span>
           <span className="panel__name">{view?.boardName ?? project.name}</span>
         </div>
+        <Link className="button button--quiet" to={`/projects/${projectId}/members`}>
+          People
+        </Link>
         <span className="panel__mode">{view?.type.toLowerCase()}</span>
       </header>
 

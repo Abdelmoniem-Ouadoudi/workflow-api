@@ -8,6 +8,7 @@ import ma.dev.workflow.board.models.Board;
 import ma.dev.workflow.board.repositories.BoardRepository;
 import ma.dev.workflow.board.service.IBoardService;
 import ma.dev.workflow.common.exception.BusinessRuleException;
+import ma.dev.workflow.common.security.ProjectAccess;
 import ma.dev.workflow.issue.dto.IssueSummaryDTO;
 import ma.dev.workflow.issue.models.enums.Status;
 import ma.dev.workflow.issue.repositories.IssueRepository;
@@ -34,22 +35,25 @@ public class BoardService implements IBoardService {
     private final SprintRepository sprintRepository;
     private final IssueRepository issueRepository;
     private final BoardMapper boardMapper;
+    private final ProjectAccess projectAccess;
 
     public BoardService(BoardRepository boardRepository,
                         ProjectRepository projectRepository,
                         SprintRepository sprintRepository,
                         IssueRepository issueRepository,
-                        BoardMapper boardMapper) {
+                        BoardMapper boardMapper,
+                        ProjectAccess projectAccess) {
         this.boardRepository = boardRepository;
         this.projectRepository = projectRepository;
         this.sprintRepository = sprintRepository;
         this.issueRepository = issueRepository;
         this.boardMapper = boardMapper;
+        this.projectAccess = projectAccess;
     }
 
     @Override
     public BoardViewDTO getView(Long boardId) {
-        Board board = getOrThrow(boardId);
+        Board board = getVisibleOrThrow(boardId);
         Sprint active = sprintRepository
                 .findByBoardIdAndState(boardId, SprintState.ACTIVE)
                 .orElse(null);
@@ -81,7 +85,7 @@ public class BoardService implements IBoardService {
 
     @Override
     public List<IssueSummaryDTO> getBacklog(Long boardId) {
-        getOrThrow(boardId);
+        getVisibleOrThrow(boardId);
         return byPriority(issueRepository.findBacklogSummaries(boardId));
     }
 
@@ -99,23 +103,31 @@ public class BoardService implements IBoardService {
 
     @Override
     public List<BoardDTO> findAll() {
-        return boardMapper.fromModelList(boardRepository.findAll());
+        if (projectAccess.isAdmin()) {
+            return boardMapper.fromModelList(boardRepository.findAll());
+        }
+        return boardMapper.fromModelList(
+                boardRepository.findByProjectIdIn(projectAccess.myProjectIds()));
     }
 
     @Override
     public List<BoardDTO> findByProjectId(Long projectId) {
+        projectAccess.requireMember(projectId);
         requireProject(projectId);
         return boardMapper.fromModelList(boardRepository.findByProjectId(projectId));
     }
 
     @Override
     public BoardDTO findById(Long id) {
-        return boardMapper.fromModel(getOrThrow(id));
+        return boardMapper.fromModel(getVisibleOrThrow(id));
     }
 
     @Override
     @Transactional
     public BoardDTO create(BoardDTO dto) {
+        // Boards are project structure, not content: adding or removing one changes what every
+        // member of the project sees. That is the project manager's call, not any member's.
+        projectAccess.requireProjectManager(dto.getProjectId());
         Project project = requireProject(dto.getProjectId());
         Board board = boardMapper.fromDTO(dto);
         board.setProject(project);
@@ -126,6 +138,7 @@ public class BoardService implements IBoardService {
     @Transactional
     public BoardDTO update(Long id, BoardDTO dto) {
         Board board = getOrThrow(id);
+        projectAccess.requireProjectManager(board.getProject().getId());
         // A board does not move between projects: its issues belong to the original project.
         board.setName(dto.getName());
         board.setType(dto.getType());
@@ -138,6 +151,7 @@ public class BoardService implements IBoardService {
         Board board = getOrThrow(id);
         // The class diagram requires at least one board per project (1..*).
         Long projectId = board.getProject().getId();
+        projectAccess.requireProjectManager(projectId);
         if (boardRepository.findByProjectId(projectId).size() <= 1) {
             throw new BusinessRuleException("LAST_BOARD",
                     "A project must keep at least one board.");
@@ -148,6 +162,19 @@ public class BoardService implements IBoardService {
     private Board getOrThrow(Long id) {
         return boardRepository.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("Board not found: " + id));
+    }
+
+    /**
+     * Load the board, then check the caller is on the project it turns out to belong to.
+     *
+     * <p>This ordering is why the check cannot be a path rule or a {@code @PreAuthorize}: the URL
+     * carries a board id, and which project that board belongs to is only knowable after the row
+     * has been read.
+     */
+    private Board getVisibleOrThrow(Long id) {
+        Board board = getOrThrow(id);
+        projectAccess.requireMember(board.getProject().getId());
+        return board;
     }
 
     private Project requireProject(Long projectId) {

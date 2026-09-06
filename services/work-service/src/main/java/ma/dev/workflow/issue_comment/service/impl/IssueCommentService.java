@@ -3,6 +3,7 @@ package ma.dev.workflow.issue_comment.service.impl;
 import jakarta.persistence.EntityNotFoundException;
 import ma.dev.workflow.common.exception.BusinessRuleException;
 import ma.dev.workflow.common.security.CurrentUser;
+import ma.dev.workflow.common.security.ProjectAccess;
 import ma.dev.workflow.issue.models.Issue;
 import ma.dev.workflow.issue.repositories.IssueRepository;
 import ma.dev.workflow.issue_comment.dto.IssueCommentDTO;
@@ -26,17 +27,20 @@ public class IssueCommentService implements IIssueCommentService {
     private final UserRepository userRepository;
     private final IssueCommentMapper commentMapper;
     private final CurrentUser currentUser;
+    private final ProjectAccess projectAccess;
 
     public IssueCommentService(IssueCommentRepository commentRepository,
                                IssueRepository issueRepository,
                                UserRepository userRepository,
                                IssueCommentMapper commentMapper,
-                               CurrentUser currentUser) {
+                               CurrentUser currentUser,
+                               ProjectAccess projectAccess) {
         this.commentRepository = commentRepository;
         this.issueRepository = issueRepository;
         this.userRepository = userRepository;
         this.commentMapper = commentMapper;
         this.currentUser = currentUser;
+        this.projectAccess = projectAccess;
     }
 
     @Override
@@ -78,13 +82,21 @@ public class IssueCommentService implements IIssueCommentService {
         commentRepository.delete(requireCommentOnIssue(issueId, commentId));
     }
 
+    /**
+     * Every path in this service goes through here, which is why the membership check lives here
+     * rather than being repeated in five methods. A comment is only reachable through its issue,
+     * and an issue is only reachable by a member of its project.
+     */
     private Issue requireIssue(Long issueId) {
-        return issueRepository.findById(issueId)
+        Issue issue = issueRepository.findById(issueId)
                 .orElseThrow(() -> new EntityNotFoundException("Issue not found: " + issueId));
+        projectAccess.requireMember(issue.getProject().getId());
+        return issue;
     }
 
     /** Guards against /issues/5/comments/9 where comment 9 belongs to issue 7. */
     private IssueComment requireCommentOnIssue(Long issueId, Long commentId) {
+        requireIssue(issueId);
         IssueComment comment = commentRepository.findById(commentId)
                 .orElseThrow(() -> new EntityNotFoundException("Comment not found: " + commentId));
         if (!comment.getIssue().getId().equals(issueId)) {

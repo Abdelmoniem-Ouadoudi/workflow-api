@@ -73,6 +73,50 @@ expect_field_one_of() {
   printf 'FAIL  got %s want one of [%s]  %s\n' "$got" "$*" "$name"; fail=$((fail+1))
 }
 
+# The list assertions below exist because scoping is a claim about what is NOT in a response,
+# and a status code cannot express that. "You do not see this project" and "this project does not
+# exist" are the same 200 with a different body.
+
+# expect_field_in_list <name> <field> <value> - some element of the last array has field = value.
+expect_field_in_list() {
+  local name="$1"; local field="$2"; local want="$3"
+  if echo "$LAST" | python -c "import sys,json;sys.exit(0 if any(str(r.get('$field'))=='$want' for r in json.load(sys.stdin)) else 1)"; then
+    printf 'PASS  --   %s\n' "$name"; pass=$((pass+1))
+  else
+    printf 'FAIL  no element with %s=%s  %s\n' "$field" "$want" "$name"; fail=$((fail+1))
+  fi
+}
+
+expect_present_in_list() { expect_field_in_list "$@"; }
+
+# expect_absent_from_list <name> <field> <value> - no element has it. This is the scoping check.
+expect_absent_from_list() {
+  local name="$1"; local field="$2"; local want="$3"
+  if echo "$LAST" | python -c "import sys,json;sys.exit(0 if any(str(r.get('$field'))=='$want' for r in json.load(sys.stdin)) else 1)"; then
+    printf 'FAIL  %s=%s was visible  %s\n' "$field" "$want" "$name"; fail=$((fail+1))
+  else
+    printf 'PASS  --   %s\n' "$name"; pass=$((pass+1))
+  fi
+}
+
+# expect_field_changed <name> <field> <old value> - the field is set and is not the old value.
+expect_field_changed() {
+  local name="$1"; local field="$2"; local old="$3"
+  local got
+  got=$(echo "$LAST" | python -c "import sys,json;print(json.load(sys.stdin).get('$field') or '')")
+  if [ -n "$got" ] && [ "$got" != "$old" ]; then
+    printf 'PASS  --   %s\n' "$name"; pass=$((pass+1))
+  else
+    printf 'FAIL  %s is still %s  %s\n' "$field" "$got" "$name"; fail=$((fail+1))
+  fi
+}
+
+# id_where <field> <value> - the id of the first element of the last array whose field matches.
+# The approval queue is a list and the account just registered has to be found in it by name.
+id_where() {
+  echo "$LAST" | python -c "import sys,json;print(next(r['id'] for r in json.load(sys.stdin) if r['$1']=='$2'))"
+}
+
 id_of()    { echo "$LAST" | python -c "import sys,json;print(json.load(sys.stdin)['id'])"; }
 token_of() { echo "$LAST" | python -c "import sys,json;print(json.load(sys.stdin)['token'])"; }
 uid_of()   { echo "$LAST" | python -c "import sys,json;print(json.load(sys.stdin)['userId'])"; }
@@ -85,38 +129,66 @@ check_anon "garbage token -> 401" 401 $BASE/projects -H "Authorization: Bearer n
 check_anon "health is open" 200 $BASE/actuator/health
 
 echo "########## AUTH ##########"
-A="admin$RANDOM"
-check_anon "register admin" 201 -X POST $BASE/auth/register -H "$J" -d "{\"username\":\"$A\",\"email\":\"$A@dev.ma\",\"password\":\"password123\",\"role\":\"ADMIN\"}"
+# The bootstrap administrator, seeded by a migration. Registering one is no longer possible:
+# RegisterRequest has no role field since M5, so every new account is a PENDING DEVELOPER and
+# somebody who is already an administrator has to say otherwise. This account is where that
+# chain has to start, and it is the only row in `account` nobody approved.
+check_anon "login as the seeded admin" 200 -X POST $BASE/auth/login -H "$J" -d '{"username":"admin","password":"admin12345"}'
 TOKEN=$(token_of); ADMIN_ID=$(uid_of)
-check_anon "register duplicate username -> 422" 422 -X POST $BASE/auth/register -H "$J" -d "{\"username\":\"$A\",\"email\":\"other$A@dev.ma\",\"password\":\"password123\",\"role\":\"ADMIN\"}"
-check_anon "register short password -> 400" 400 -X POST $BASE/auth/register -H "$J" -d '{"username":"shorty","email":"s@dev.ma","password":"abc","role":"DEVELOPER"}'
-check_anon "register bad email -> 400" 400 -X POST $BASE/auth/register -H "$J" -d '{"username":"bademail","email":"nope","password":"password123","role":"DEVELOPER"}'
-check_anon "register unknown role -> 400" 400 -X POST $BASE/auth/register -H "$J" -d '{"username":"wizard","email":"w@dev.ma","password":"password123","role":"WIZARD"}'
-check_anon "login" 200 -X POST $BASE/auth/login -H "$J" -d "{\"username\":\"$A\",\"password\":\"password123\"}"
-check_anon "wrong password -> 401" 401 -X POST $BASE/auth/login -H "$J" -d "{\"username\":\"$A\",\"password\":\"wrongpassword\"}"
-check_anon "unknown username -> 401" 401 -X POST $BASE/auth/login -H "$J" -d '{"username":"nobody","password":"password123"}'
 check "who am i" 200 $BASE/auth/me
+expect_field "the seeded account really is an admin" role ADMIN
 check_anon "who am i, no token -> 401" 401 $BASE/auth/me
 
-# A second, lesser account: the role rules below need someone who is not an admin.
-check_anon "register developer" 201 -X POST $BASE/auth/register -H "$J" -d "{\"username\":\"dev$A\",\"email\":\"dev$A@dev.ma\",\"password\":\"password123\",\"role\":\"DEVELOPER\"}"
+A="dev$RANDOM"
+# 202, not 201: a row was created, but what the person asked for - an account they can use -
+# does not exist yet.
+check_anon "register -> 202 accepted" 202 -X POST $BASE/auth/register -H "$J" -d "{\"username\":\"$A\",\"email\":\"$A@dev.ma\",\"password\":\"password123\"}"
+expect_field "the new account is PENDING" status PENDING
+# The hole M5 closed, proven rather than asserted: before this, that role field was honoured and
+# anybody on the internet could make themselves an administrator with one request.
+check_anon "a role in the body is ignored" 202 -X POST $BASE/auth/register -H "$J" -d "{\"username\":\"sneaky$A\",\"email\":\"sneaky$A@dev.ma\",\"password\":\"password123\",\"role\":\"ADMIN\"}"
+check_anon "an unapproved account cannot log in -> 403" 403 -X POST $BASE/auth/login -H "$J" -d "{\"username\":\"$A\",\"password\":\"password123\"}"
+check_anon "register duplicate username -> 422" 422 -X POST $BASE/auth/register -H "$J" -d "{\"username\":\"$A\",\"email\":\"other$A@dev.ma\",\"password\":\"password123\"}"
+check_anon "register short password -> 400" 400 -X POST $BASE/auth/register -H "$J" -d '{"username":"shorty","email":"s@dev.ma","password":"abc"}'
+check_anon "register bad email -> 400" 400 -X POST $BASE/auth/register -H "$J" -d '{"username":"bademail","email":"nope","password":"password123"}'
+check_anon "wrong password -> 401" 401 -X POST $BASE/auth/login -H "$J" -d '{"username":"admin","password":"wrongpassword"}'
+check_anon "unknown username -> 401" 401 -X POST $BASE/auth/login -H "$J" -d '{"username":"nobody","password":"password123"}'
+
+echo "########## APPROVAL ##########"
+check "the pending queue" 200 "$BASE/admin/accounts?status=PENDING"
+ACC_ID=$(id_where username "$A")
+check "the whole list, enriched with emails from work-service" 200 $BASE/admin/accounts
+check "approve as a developer" 200 -X POST $BASE/admin/accounts/$ACC_ID/approve -H "$J" -d '{"role":"DEVELOPER"}'
+expect_field "approving activates the account" status ACTIVE
+check "approving twice -> 422" 422 -X POST $BASE/admin/accounts/$ACC_ID/approve -H "$J" -d '{"role":"ADMIN"}'
+check "approve an account that does not exist -> 404" 404 -X POST $BASE/admin/accounts/999999/approve -H "$J" -d '{"role":"DEVELOPER"}'
+check "approve with no role -> 400" 400 -X POST $BASE/admin/accounts/$ACC_ID/approve -H "$J" -d '{}'
+check_anon "the approved account can now log in" 200 -X POST $BASE/auth/login -H "$J" -d "{\"username\":\"$A\",\"password\":\"password123\"}"
 DEV_TOKEN=$(token_of); DEV_ID=$(uid_of)
 
 echo "########## USERS ##########"
-# POST /users is service-only now: registration is the one way a person is created, so a profile
-# can never exist without a login behind it.
+# POST /users is service-only: registration is the one way a person is created, so a profile can
+# never exist without a login behind it.
 check "create user directly -> 403" 403 -X POST $BASE/users -H "$J" -d '{"username":"sneaky","email":"s@dev.ma","role":"ADMIN"}'
 check "list users" 200 $BASE/users
 check "get user" 200 $BASE/users/$DEV_ID
-check "update user" 200 -X PUT $BASE/users/$DEV_ID -H "$J" -d "{\"username\":\"dev$A\",\"email\":\"dev$A@dev.ma\",\"role\":\"MANAGER\"}"
+# The role is no longer changeable here, and this proves it. Before M5 this endpoint wrote
+# app_user.role while tokens went on being minted from account.role in the other database, so a
+# promoted person carried their old role for as long as the account existed and nothing said so.
+check "update user" 200 -X PUT $BASE/users/$DEV_ID -H "$J" -d "{\"username\":\"$A\",\"email\":\"$A@dev.ma\",\"role\":\"ADMIN\"}"
+expect_field "the role in the body was ignored" role DEVELOPER
 check "get missing user -> 404" 404 $BASE/users/999999
 
 echo "########## ROLE RULES ##########"
-# The one rule that proves the role claim is enforced at the service, not just carried around.
+# The role claim is enforced at the service, not merely carried around.
 SAVED=$TOKEN; TOKEN=$DEV_TOKEN
 check "developer cannot deactivate -> 403" 403 -X DELETE $BASE/users/$DEV_ID
+check "developer cannot read the user list -> 403" 403 $BASE/users
+check "developer cannot see the approval queue -> 403" 403 $BASE/admin/accounts
+check "developer cannot approve anybody -> 403" 403 -X POST $BASE/admin/accounts/$ACC_ID/approve -H "$J" -d '{"role":"ADMIN"}'
+# A DEVELOPER joins projects; they do not start them. This is the only thing MANAGER means.
+check "developer cannot create a project -> 403" 403 -X POST $BASE/projects -H "$J" -d '{"key":"NOPE","name":"not allowed"}'
 TOKEN=$SAVED
-check "admin can deactivate" 200 -X DELETE $BASE/users/$DEV_ID
 
 echo "########## PROJECTS ##########"
 K="P$RANDOM"; K=${K:0:6}
@@ -129,6 +201,64 @@ check "list projects" 200 $BASE/projects
 check "get project" 200 $BASE/projects/$PID
 check "update project" 200 -X PUT $BASE/projects/$PID -H "$J" -d "{\"key\":\"$K\",\"name\":\"Renamed\"}"
 check "bad id type -> 400" 400 $BASE/projects/abc
+
+echo "########## MEMBERSHIP ##########"
+# Whoever creates a project runs it. Nobody appoints the first project manager, because there is
+# nobody on the project yet to do the appointing.
+check "the creator is on the project" 200 $BASE/projects/$PID/members
+expect_field_in_list "the creator is its project manager" role PROJECT_MANAGER
+check "the join code, for the project manager only" 200 $BASE/projects/$PID/join-code
+JOIN_CODE=$(echo "$LAST" | python -c "import sys,json;print(json.load(sys.stdin)['joinCode'])")
+
+SAVED=$TOKEN; TOKEN=$DEV_TOKEN
+# The scoping, proven the only way that counts: not by an absent row in a list, but by asking
+# for the thing directly, by id, with a valid token belonging to somebody else.
+check "a non-member cannot read the project -> 403" 403 $BASE/projects/$PID
+check "a non-member cannot read its members -> 403" 403 $BASE/projects/$PID/members
+check "a non-member cannot see the join code -> 403" 403 $BASE/projects/$PID/join-code
+check "a non-member cannot file an issue in it -> 403" 403 -X POST $BASE/issues -H "$J" -d "{\"projectId\":$PID,\"title\":\"not mine\",\"type\":\"BUG\",\"priority\":\"LOW\"}"
+check "the project is not in their list" 200 $BASE/projects
+expect_absent_from_list "the project is not in their list" id "$PID"
+
+# Joining: the code buys the right to ask, not entry. A code sent by mail gets forwarded.
+check "a wrong code finds nothing -> 404" 404 -X POST $BASE/projects/lookup -H "$J" -d '{"joinCode":"WRONGCODE123"}'
+check "a valid code names the project" 200 -X POST $BASE/projects/lookup -H "$J" -d "{\"joinCode\":\"$JOIN_CODE\"}"
+expect_field "the lookup found the right project" id "$PID"
+check "asking to join" 201 -X POST $BASE/projects/$PID/join-requests -H "$J" -d "{\"joinCode\":\"$JOIN_CODE\"}"
+expect_field "the request is pending, not accepted" status PENDING
+check "asking twice -> 422" 422 -X POST $BASE/projects/$PID/join-requests -H "$J" -d "{\"joinCode\":\"$JOIN_CODE\"}"
+check "still not a member until somebody says yes -> 403" 403 $BASE/projects/$PID
+check "a member cannot answer their own request -> 403" 403 $BASE/projects/$PID/join-requests
+TOKEN=$SAVED
+
+check "the project manager sees the request" 200 $BASE/projects/$PID/join-requests
+REQ_ID=$(id_where username "$A")
+check "accepting it" 200 -X POST $BASE/projects/$PID/join-requests/$REQ_ID/approve
+expect_field "the request is now approved" status APPROVED
+check "accepting twice -> 422" 422 -X POST $BASE/projects/$PID/join-requests/$REQ_ID/approve
+
+SAVED=$TOKEN; TOKEN=$DEV_TOKEN
+check "now they can read the project" 200 $BASE/projects/$PID
+check "and it is in their list" 200 $BASE/projects
+expect_present_in_list "and it is in their list" id "$PID"
+# On the project, but not running it. Joining does not make you the chef.
+check "a member cannot manage the project's people -> 403" 403 -X DELETE $BASE/projects/$PID/members/$ADMIN_ID
+check "a member cannot rename the project -> 403" 403 -X PUT $BASE/projects/$PID -H "$J" -d "{\"key\":\"$K\",\"name\":\"mine now\"}"
+TOKEN=$SAVED
+
+# The rule no constraint can express: it is a count over the rows that would remain afterwards.
+check "the only project manager cannot stand down -> 422" 422 -X PUT $BASE/projects/$PID/members/$ADMIN_ID -H "$J" -d '{"role":"MEMBER"}'
+check "the only project manager cannot be removed -> 422" 422 -X DELETE $BASE/projects/$PID/members/$ADMIN_ID
+check "promoting somebody else" 200 -X PUT $BASE/projects/$PID/members/$DEV_ID -H "$J" -d '{"role":"PROJECT_MANAGER"}'
+check "now the first one may stand down" 200 -X PUT $BASE/projects/$PID/members/$ADMIN_ID -H "$J" -d '{"role":"MEMBER"}'
+check "and be put back" 200 -X PUT $BASE/projects/$PID/members/$ADMIN_ID -H "$J" -d '{"role":"PROJECT_MANAGER"}'
+check "adding somebody already on it -> 422" 422 -X POST $BASE/projects/$PID/members -H "$J" -d "{\"userId\":$DEV_ID,\"role\":\"MEMBER\"}"
+
+# Rotating stops the next person using an old code. It does not touch anybody already here.
+check "replacing the join code" 200 -X POST $BASE/projects/$PID/join-code/rotate
+expect_field_changed "the code really changed" joinCode "$JOIN_CODE"
+check "the old code no longer finds anything -> 404" 404 -X POST $BASE/projects/lookup -H "$J" -d "{\"joinCode\":\"$JOIN_CODE\"}"
+check "and the members are all still there" 200 $BASE/projects/$PID/members
 
 echo "########## BOARDS ##########"
 check "boards of project (auto-created)" 200 "$BASE/boards?projectId=$PID"
@@ -380,6 +510,16 @@ check "delete issue 3" 204 -X DELETE $BASE/issues/$I3
 check "delete project" 204 -X DELETE $BASE/projects/$PID
 check "project gone -> 404" 404 $BASE/projects/$PID
 check "cascade: board gone -> 404" 404 $BASE/boards/$BID
+
+# Left until here because a deactivated person is still a member of the project above, and the
+# membership cases needed them usable. Deactivation, never deletion: issue.reporter_id is
+# ON DELETE RESTRICT so the record of who raised a ticket outlives the person's access.
+check "admin can deactivate" 200 -X DELETE $BASE/users/$DEV_ID
+expect_field "deactivation is a flag, not a delete" active False
+check "the account can be switched off too" 200 -X POST $BASE/admin/accounts/$ACC_ID/disable
+check_anon "a disabled account cannot log in -> 403" 403 -X POST $BASE/auth/login -H "$J" -d "{\"username\":\"$A\",\"password\":\"password123\"}"
+check "and switched back on" 200 -X POST $BASE/admin/accounts/$ACC_ID/enable
+check_anon "which lets them back in" 200 -X POST $BASE/auth/login -H "$J" -d "{\"username\":\"$A\",\"password\":\"password123\"}"
 
 echo "########## CORS, AS A BROWSER WOULD SEE IT ##########"
 # curl does not enforce CORS, so every case above passed while the app was unusable in a browser:

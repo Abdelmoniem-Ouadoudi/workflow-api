@@ -10,6 +10,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
+import ma.dev.workflow.auth.account.models.enums.AccountStatus;
 import ma.dev.workflow.auth.account.models.enums.Role;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
@@ -48,9 +49,19 @@ public class Account {
     @Column(name = "work_user_id", nullable = false, unique = true)
     private Long workUserId;
 
-    /** Deactivation replaces deletion, same rule as work-service. */
-    @Column(name = "is_active", nullable = false)
-    private Boolean active = true;
+    /**
+     * Whether this account may log in, and why not when it may not.
+     *
+     * <p>This column is the authority. work-service keeps a boolean {@code app_user.is_active} so
+     * it can filter an assignee dropdown without a network call, but that is a copy: a login is
+     * answered here, by one service, with no hop to anywhere.
+     *
+     * <p>New accounts start PENDING. Deletion is never an option — {@code issue.reporter_id} is
+     * ON DELETE RESTRICT precisely so history survives the person.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private AccountStatus status = AccountStatus.PENDING;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)

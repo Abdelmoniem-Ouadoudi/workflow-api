@@ -12,6 +12,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
+import java.util.List;
+
 /**
  * Creates the user profile that lives in work-service.
  *
@@ -43,7 +45,7 @@ public class WorkServiceClient {
      *                                  already taken there
      * @throws ExternalServiceException work-service is down, unregistered, or answered nonsense
      */
-    public Long createUser(String username, String email, Role role) {
+    public Long createUser(String username, String email, Role role, boolean active) {
         try {
             CreatedUser created = restClient.post()
                     .uri("/users")
@@ -51,7 +53,7 @@ public class WorkServiceClient {
                     // service's own. work-service requires ROLE_SERVICE on POST /users, so the
                     // endpoint is not left open to make registration work.
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + jwtIssuer.issueForService())
-                    .body(new NewUser(username, email, role.name()))
+                    .body(new NewUser(username, email, role.name(), active))
                     .retrieve()
                     .onStatus(status -> status.equals(HttpStatus.UNPROCESSABLE_ENTITY),
                             (request, response) -> {
@@ -77,12 +79,79 @@ public class WorkServiceClient {
         }
     }
 
+    /**
+     * Every profile, so the administrator's screen can show an email next to each account.
+     *
+     * <p>One call, not one per row. {@code account} has no email by design — it belongs to
+     * {@code app_user}, which work-service owns — so the admin list has to be assembled from both
+     * sides. It is assembled <em>here</em>, and that direction is the whole argument: auth-service
+     * already calls work-service. Building the same list in work-service would make work-service
+     * call auth-service, and two services that call each other are a cycle that has to be broken
+     * before either can be deployed alone.
+     */
+    public List<WorkUser> listUsers() {
+        try {
+            WorkUser[] users = restClient.get()
+                    .uri("/users")
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + jwtIssuer.issueForService())
+                    .retrieve()
+                    .body(WorkUser[].class);
+            return users == null ? List.of() : List.of(users);
+        } catch (RestClientException | IllegalStateException ex) {
+            throw new ExternalServiceException(
+                    "Cannot reach work-service to read the user list.", ex);
+        }
+    }
+
+    /**
+     * Mirrors a role change into the profile.
+     *
+     * <p>The role lives in two places and this is the only thing that writes the second one. Until
+     * M5 {@code PUT /users/{id}} could change {@code app_user.role} directly while the token kept
+     * being minted from {@code account.role}, so a promoted person carried their old role forever
+     * and nothing ever said so.
+     */
+    public void updateRole(Long workUserId, Role role) {
+        put("/users/" + workUserId + "/role", new RoleUpdate(role.name()),
+                "Cannot reach work-service to update the profile's role.");
+    }
+
+    /** Mirrors approval or deactivation, so an unapproved person is not offered as an assignee. */
+    public void updateActive(Long workUserId, boolean active) {
+        put("/users/" + workUserId + "/active", new ActiveUpdate(active),
+                "Cannot reach work-service to update the profile's status.");
+    }
+
+    private void put(String uri, Object body, String failureMessage) {
+        try {
+            restClient.put()
+                    .uri(uri)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + jwtIssuer.issueForService())
+                    .body(body)
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (RestClientException | IllegalStateException ex) {
+            throw new ExternalServiceException(failureMessage, ex);
+        }
+    }
+
     /** The subset of work-service's UserDTO this service sends. It ignores anything else. */
-    private record NewUser(String username, String email, String role) {
+    private record NewUser(String username, String email, String role, boolean active) {
     }
 
     /** Only the id matters here. The profile itself is work-service's business. */
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record CreatedUser(Long id) {
+    }
+
+    /** What the admin screen needs from a profile. Public: the admin service maps it onto a DTO. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record WorkUser(Long id, String username, String email, Boolean active) {
+    }
+
+    private record RoleUpdate(String role) {
+    }
+
+    private record ActiveUpdate(boolean active) {
     }
 }

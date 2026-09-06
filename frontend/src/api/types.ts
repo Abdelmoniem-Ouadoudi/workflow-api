@@ -9,6 +9,28 @@ export type IssueType = 'BUG' | 'FEATURE' | 'SUPPORT' | 'TASK'
 export type BoardType = 'KANBAN' | 'SCRUM'
 export type Role = 'DEVELOPER' | 'MANAGER' | 'ADMIN'
 
+/** What somebody is inside one project. Not the same axis as Role, which is platform-wide. */
+export type ProjectRole = 'PROJECT_MANAGER' | 'MEMBER'
+
+/** Whether an account may log in, and why not when it may not. */
+export type AccountStatus = 'PENDING' | 'ACTIVE' | 'DISABLED'
+
+export type JoinRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED'
+
+export const ROLES: Role[] = ['DEVELOPER', 'MANAGER', 'ADMIN']
+
+/** What each global role actually gets you. Shown next to the choice on the approval screen. */
+export const ROLE_LABEL: Record<Role, string> = {
+  DEVELOPER: 'Developer — joins projects, cannot start one',
+  MANAGER: 'Manager — can create projects and runs the ones they create',
+  ADMIN: 'Administrator — approves accounts and sees every project',
+}
+
+export const PROJECT_ROLE_LABEL: Record<ProjectRole, string> = {
+  PROJECT_MANAGER: 'Project manager',
+  MEMBER: 'Member',
+}
+
 export const STATUSES: Status[] = ['TO_DO', 'IN_PROGRESS', 'DONE']
 export const PRIORITIES: Priority[] = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']
 export const ISSUE_TYPES: IssueType[] = ['BUG', 'FEATURE', 'SUPPORT', 'TASK']
@@ -166,7 +188,65 @@ export interface Dashboard {
   byEffort: CountByLabel[]
 }
 
-/** What POST /auth/register and POST /auth/login both return. */
+/** One person on a project, flattened: every column the members table draws. */
+export interface ProjectMember {
+  userId: number
+  username: string
+  email: string
+  globalRole: Role
+  role: ProjectRole
+  active: boolean
+  joinedAt: string
+}
+
+/** What a join code buys before anybody has approved anything: enough to confirm the project. */
+export interface ProjectLookup {
+  id: number
+  key: string
+  name: string
+}
+
+export interface JoinRequest {
+  id: number
+  projectId: number
+  projectKey: string
+  projectName: string
+  userId: number
+  username: string
+  email: string
+  status: JoinRequestStatus
+  requestedAt: string
+  decidedAt: string | null
+}
+
+/**
+ * One row of the administrator's screen: half from `account` in authdb, half from `app_user` in
+ * work-service. `email` is null when work-service could not be reached, or when a registration
+ * half-failed and left an account whose profile was never created.
+ */
+export interface AdminAccount {
+  id: number
+  workUserId: number
+  username: string
+  email: string | null
+  role: Role
+  status: AccountStatus
+  createdAt: string
+}
+
+/**
+ * What POST /auth/register returns now: an acknowledgement, not a token.
+ *
+ * Registering no longer signs you in, because it no longer lets you in — an administrator has to
+ * approve the account first.
+ */
+export interface RegistrationReceipt {
+  username: string
+  status: AccountStatus
+  message: string
+}
+
+/** What POST /auth/login returns. Registration no longer returns one. */
 export interface TokenResponse {
   token: string
   expiresAt: string

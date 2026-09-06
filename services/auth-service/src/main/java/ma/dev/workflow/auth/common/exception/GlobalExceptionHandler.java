@@ -1,5 +1,6 @@
 package ma.dev.workflow.auth.common.exception;
 
+import jakarta.persistence.EntityNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -9,6 +10,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.DisabledException;
+import org.springframework.security.authentication.LockedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -33,6 +35,31 @@ public class GlobalExceptionHandler {
     }
 
     /** The account exists and the password matched, but it was deactivated. */
+    /**
+     * An id that is not there. Needed since M5: before the admin endpoints, nothing in this
+     * service was addressed by id, so an unknown one could not happen and there was nothing to
+     * map. Without this it would come back as a 500.
+     */
+    @ExceptionHandler(EntityNotFoundException.class)
+    public ResponseEntity<ApiError> handleNotFound(EntityNotFoundException ex,
+                                                   HttpServletRequest request) {
+        return build(HttpStatus.NOT_FOUND, "NOT_FOUND", ex.getMessage(), request);
+    }
+
+    /**
+     * Registered, not yet approved.
+     *
+     * <p>{@code LockedException} because {@code AccountDetailsService} maps PENDING onto Spring
+     * Security's "locked" flag — the nearest of its two slots. The message is what matters: telling
+     * somebody who signed up ten seconds ago that their account is "deactivated" reads as a
+     * punishment for signing up.
+     */
+    @ExceptionHandler(LockedException.class)
+    public ResponseEntity<ApiError> handlePending(LockedException ex, HttpServletRequest request) {
+        return build(HttpStatus.FORBIDDEN, "ACCOUNT_PENDING",
+                "Your account is waiting for an administrator to approve it.", request);
+    }
+
     @ExceptionHandler(DisabledException.class)
     public ResponseEntity<ApiError> handleDisabled(DisabledException ex, HttpServletRequest request) {
         return build(HttpStatus.FORBIDDEN, "ACCOUNT_DISABLED", "This account is deactivated.", request);

@@ -1140,3 +1140,100 @@ with the one sentence to say out loud about that service.
 
 The split is deliberate: a page per service matches how a defence is questioned, one box on the
 architecture diagram at a time.
+
+## M5 — why two levels of role, and not one
+
+Because one cannot answer both questions. **Global** (`app_user.role`, in the JWT) says what you
+are on the platform: ADMIN approves accounts, MANAGER may create a project, DEVELOPER joins them.
+**Per project** (`project_member.role`) says what you are inside one: `PROJECT_MANAGER` — the chef
+de projet — or `MEMBER`.
+
+A global role cannot express "manager here, ordinary member there", which is the normal case. A
+project role cannot exist before any project does, which is the situation the first administrator
+is in. Neither is a subset of the other.
+
+## Why the project role is not in the token
+
+It changes the moment a project manager adds or removes somebody, and a token lives an hour with no
+way to recall it. The global role is in the token because an administrator changes it rarely and
+deliberately; the project role is read from the database on the request that needs it.
+
+Say the cost as well: a role change does not reach a token already issued, so somebody promoted
+keeps their old role for up to an hour. That is stated on the admin screen rather than hidden, and
+a revocation list is BACKLOG item 47.
+
+## Why the membership check is in the service, not on the path
+
+`GET /issues/{id}` has to load the issue before anyone knows which project it belongs to, and
+therefore whether the caller was allowed to see it. A path rule or `@PreAuthorize` decides from
+what is in the URL, and the URL does not say. So the check happens in the service, after the row is
+in hand — the same place, and for the same reason, as `ALLOWED_TRANSITIONS`.
+
+## Why scoping `GET /projects` was the easy half
+
+On its own it is decoration: the project disappears from a list while `/issues/1`, `/issues/2`
+still answer one at a time. Every entry point that resolves to a project checks membership —
+boards, sprints, issues, comments, attachments, classifications, dashboard. The smoke test proves
+it by asking **by id** with a valid token belonging to somebody else, because a filtered list
+proves nothing.
+
+## The vulnerability M5 closed
+
+`POST /auth/register` is open at the gateway — it has to be — and `RegisterRequest` carried a
+`role`. **Anyone on the internet could register themselves as an administrator.** It survived three
+milestones because the smoke test used it to bootstrap, so the hole was load-bearing in the tests.
+
+The field is gone; everybody registers as a PENDING DEVELOPER. Which forces the next question:
+where does the first administrator come from? A migration seeds one — the only row in `account`
+that nobody approved, because a chain of approvals has to start outside itself.
+
+## The bug nobody noticed: the role that never changed
+
+`PUT /users/{id}` on work-service wrote `app_user.role`. Tokens are minted from `account.role` in
+`authdb`. Nothing kept them in step, so promoting somebody changed the profile and **every token
+they were ever issued kept the old role, permanently**. The smoke test did exactly this at line 111
+and asserted only the 200.
+
+Two copies of a value with two writers and no owner. The role now changes in auth-service only and
+is mirrored into work-service through a SERVICE-only endpoint, so there is one writer.
+
+## Why a separate `join_code` instead of `project_key`
+
+`project_key` is printed on every ticket — `WORK-12` is on every card on the board. If it were also
+the way in, anybody who had ever seen a ticket could ask to join. The key is a display name; the
+code is a secret, twelve random characters from an alphabet with `0 O 1 I` removed so it survives
+being read off one screen and typed into another.
+
+## Why the code does not admit anybody by itself
+
+A code sent by mail gets forwarded, quoted in a reply-all and pasted into a chat. Treating
+possession of one as permission would make a project as private as its most careless member's
+inbox. The code earns the right to *ask*; a project manager still decides.
+
+Rotating it is therefore useful and cheap: it stops the next person using an old code and touches
+nobody who is already there.
+
+## Why the admin list is built in auth-service
+
+The screen needs a username and status (from `account` in `authdb`) next to an email (from
+`app_user` in `workflow`). Assembling it in work-service would mean work-service calling
+auth-service — and auth-service already calls work-service, so that would be a cycle between two
+services that are supposed to be deployable separately. Every cross-service call in this system
+points the same way, and there is no path back.
+
+## Why `is_active` became a three-value status
+
+A boolean could say "may not log in" but not why. "Waiting for approval" and "switched off" need
+different sentences: telling somebody who signed up ten seconds ago that their account is
+deactivated reads as a punishment for signing up.
+
+## Why the router arrived now and not earlier
+
+BACKLOG item 35 said it would land "at the next screen", and the argument settled itself rather
+than being won: a join code is mailed as a link, and a link is a URL. Screens switched by a
+`useState` string cannot be linked to, bookmarked, or refreshed into. `react-router-dom` is the
+first runtime dependency added to the frontend since the project began.
+
+The guards decide what is **rendered**, never what is **allowed** — every rule is enforced again in
+work-service and auth-service, which is the only place it counts. A guard is one localStorage edit
+away from being bypassed; a service is not.

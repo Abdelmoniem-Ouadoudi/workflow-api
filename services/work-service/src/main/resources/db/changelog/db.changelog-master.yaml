@@ -21,3 +21,11 @@ databaseChangeLog:
   # with auth-service. The folder is named for the milestone, not for a continuous sequence.
   - include:
       file: db/changelog/changes/m3/3.0.1-create-ai-classification-table.yml
+  # M5. There is no m4 folder either: M4's only table was the embedding, and that lives in
+  # vectordb with classification-service.
+  - include:
+      file: db/changelog/changes/m5/5.0.1-create-project-member-table.yml
+  - include:
+      file: db/changelog/changes/m5/5.0.2-add-join-code-to-project.yml
+  - include:
+      file: db/changelog/changes/m5/5.0.5-create-project-join-request-table.yml

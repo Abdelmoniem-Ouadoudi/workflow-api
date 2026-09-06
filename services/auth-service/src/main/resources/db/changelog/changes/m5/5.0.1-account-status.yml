@@ -1,0 +1,51 @@
+databaseChangeLog:
+  # is_active could say "may log in" and "may not". It could not tell those two apart, and after
+  # M5 they need different answers: somebody who has just registered is waiting for an
+  # administrator, somebody who was switched off should talk to one. Same HTTP status, two very
+  # different sentences on the screen.
+  #
+  # Three changeSets rather than one, so the backfill is a step that can be rolled back on its own.
+
+  - changeSet:
+      id: 5.0.1
+      author: abdelmoniem
+      changes:
+        - addColumn:
+            tableName: account
+            columns:
+              - column:
+                  name: status
+                  type: varchar(20)
+
+  - changeSet:
+      id: 5.0.2
+      author: abdelmoniem
+      comment: >
+        Every account that existed before M5 was approved by the act of registering, so it maps to
+        ACTIVE. Nothing becomes PENDING retroactively - that would lock out people who can log in
+        today, which is a migration doing something nobody asked for.
+      changes:
+        - sql:
+            sql: UPDATE account SET status = CASE WHEN is_active THEN 'ACTIVE' ELSE 'DISABLED' END WHERE status IS NULL
+            rollback: UPDATE account SET status = NULL
+
+  - changeSet:
+      id: 5.0.3
+      author: abdelmoniem
+      comment: Only now, with every row filled, can the column carry NOT NULL - and is_active go.
+      changes:
+        - addNotNullConstraint:
+            tableName: account
+            columnName: status
+            columnDataType: varchar(20)
+        - dropColumn:
+            tableName: account
+            columnName: is_active
+      rollback:
+        - addColumn:
+            tableName: account
+            columns:
+              - column:
+                  name: is_active
+                  type: boolean
+                  defaultValueBoolean: true

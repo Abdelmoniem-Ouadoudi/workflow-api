@@ -4,6 +4,7 @@ import jakarta.persistence.EntityNotFoundException;
 import ma.dev.workflow.board.models.Board;
 import ma.dev.workflow.board.repositories.BoardRepository;
 import ma.dev.workflow.common.exception.BusinessRuleException;
+import ma.dev.workflow.common.security.ProjectAccess;
 import ma.dev.workflow.issue.models.Issue;
 import ma.dev.workflow.issue.models.enums.Status;
 import ma.dev.workflow.issue.repositories.IssueRepository;
@@ -27,37 +28,44 @@ public class SprintService implements ISprintService {
     private final BoardRepository boardRepository;
     private final IssueRepository issueRepository;
     private final SprintMapper sprintMapper;
+    private final ProjectAccess projectAccess;
 
     public SprintService(SprintRepository sprintRepository,
                          BoardRepository boardRepository,
                          IssueRepository issueRepository,
-                         SprintMapper sprintMapper) {
+                         SprintMapper sprintMapper,
+                         ProjectAccess projectAccess) {
         this.sprintRepository = sprintRepository;
         this.boardRepository = boardRepository;
         this.issueRepository = issueRepository;
         this.sprintMapper = sprintMapper;
+        this.projectAccess = projectAccess;
     }
 
     @Override
     public List<SprintDTO> findAll() {
-        return sprintMapper.fromModelList(sprintRepository.findAll());
+        if (projectAccess.isAdmin()) {
+            return sprintMapper.fromModelList(sprintRepository.findAll());
+        }
+        return sprintMapper.fromModelList(
+                sprintRepository.findByBoardProjectIdIn(projectAccess.myProjectIds()));
     }
 
     @Override
     public List<SprintDTO> findByBoardId(Long boardId) {
-        requireBoard(boardId);
+        requireVisibleBoard(boardId);
         return sprintMapper.fromModelList(sprintRepository.findByBoardId(boardId));
     }
 
     @Override
     public SprintDTO findById(Long id) {
-        return sprintMapper.fromModel(getOrThrow(id));
+        return sprintMapper.fromModel(getVisibleOrThrow(id));
     }
 
     @Override
     @Transactional
     public SprintDTO create(SprintDTO dto) {
-        Board board = requireBoard(dto.getBoardId());
+        Board board = requireVisibleBoard(dto.getBoardId());
         requireValidDates(dto.getStartDate(), dto.getEndDate());
 
         Sprint sprint = sprintMapper.fromDTO(dto);
@@ -69,7 +77,7 @@ public class SprintService implements ISprintService {
     @Override
     @Transactional
     public SprintDTO update(Long id, SprintDTO dto) {
-        Sprint sprint = getOrThrow(id);
+        Sprint sprint = getVisibleOrThrow(id);
         if (sprint.getState() == SprintState.COMPLETED) {
             throw new BusinessRuleException("SPRINT_COMPLETED",
                     "A completed sprint cannot be modified.");
@@ -86,7 +94,7 @@ public class SprintService implements ISprintService {
     @Override
     @Transactional
     public SprintDTO start(Long id) {
-        Sprint sprint = getOrThrow(id);
+        Sprint sprint = getVisibleOrThrow(id);
         if (sprint.getState() != SprintState.PLANNED) {
             throw new BusinessRuleException("SPRINT_NOT_PLANNED",
                     "Only a planned sprint can be started. This one is " + sprint.getState() + ".");
@@ -108,7 +116,7 @@ public class SprintService implements ISprintService {
     @Override
     @Transactional
     public SprintDTO complete(Long id) {
-        Sprint sprint = getOrThrow(id);
+        Sprint sprint = getVisibleOrThrow(id);
         if (sprint.getState() != SprintState.ACTIVE) {
             throw new BusinessRuleException("SPRINT_NOT_ACTIVE",
                     "Only an active sprint can be completed. This one is " + sprint.getState() + ".");
@@ -130,7 +138,7 @@ public class SprintService implements ISprintService {
     @Override
     @Transactional
     public void deleteById(Long id) {
-        Sprint sprint = getOrThrow(id);
+        Sprint sprint = getVisibleOrThrow(id);
         if (sprint.getState() == SprintState.ACTIVE) {
             throw new BusinessRuleException("SPRINT_ACTIVE",
                     "An active sprint cannot be deleted. Complete it first.");
@@ -143,10 +151,30 @@ public class SprintService implements ISprintService {
                 .orElseThrow(() -> new EntityNotFoundException("Sprint not found: " + id));
     }
 
+    /**
+     * Load the sprint, then check the caller is on the project two hops up.
+     *
+     * <p>Planning sprints is left to any member rather than to the project manager. The class
+     * diagram says nothing about who may start or close one, and BACKLOG item 15 is explicit that
+     * inventing a rule the model does not state is worse than leaving it open. What M5 does say is
+     * who may change a project's <em>people and configuration</em> — a sprint is neither.
+     */
+    private Sprint getVisibleOrThrow(Long id) {
+        Sprint sprint = getOrThrow(id);
+        projectAccess.requireMember(sprint.getBoard().getProject().getId());
+        return sprint;
+    }
+
     private Board requireBoard(Long boardId) {
         return boardRepository.findById(boardId)
                 .orElseThrow(() -> new BusinessRuleException("BOARD_NOT_FOUND",
                         "Board not found: " + boardId));
+    }
+
+    private Board requireVisibleBoard(Long boardId) {
+        Board board = requireBoard(boardId);
+        projectAccess.requireMember(board.getProject().getId());
+        return board;
     }
 
     private void requireValidDates(LocalDate startDate, LocalDate endDate) {

@@ -117,8 +117,19 @@ public class SecurityConfig {
                         // during registration. There is deliberately no second way to create a
                         // person, because that would produce a profile nobody can log in as.
                         .requestMatchers(HttpMethod.POST, "/users").hasRole(TokenClaims.SERVICE_ROLE)
-                        // The one role rule, so the role claim is provably enforced and not just
-                        // carried around. Deactivating someone is an administrator's decision.
+                        // The global role and the account status are auth-service's to decide,
+                        // because auth-service is what stamps a role into a token and what answers
+                        // a login. These two endpoints exist so it can mirror its decision here,
+                        // and they are reachable with a service token only - never from a browser.
+                        .requestMatchers(HttpMethod.PUT, "/users/*/role").hasRole(TokenClaims.SERVICE_ROLE)
+                        .requestMatchers(HttpMethod.PUT, "/users/*/active").hasRole(TokenClaims.SERVICE_ROLE)
+                        // Reading the user list means reading everybody's email address. Before M5
+                        // any signed-in caller could, because the board's assignee dropdown needed
+                        // it; that dropdown now reads GET /projects/{id}/members instead. SERVICE
+                        // is here because auth-service builds its admin screen from this list.
+                        .requestMatchers(HttpMethod.GET, "/users", "/users/*")
+                                .hasAnyRole("ADMIN", TokenClaims.SERVICE_ROLE)
+                        // Deactivating someone is an administrator's decision.
                         .requestMatchers(HttpMethod.DELETE, "/users/**").hasRole("ADMIN")
                         // Operational actions, not work. Reindexing pushes every issue back through
                         // the classifier, which is a real load on an external model.

@@ -34,5 +34,22 @@ RabbitMQ. `classification-service` consumes `issue.created`, calls Groq (Spring 
 Embeddings + pgvector. "Possible duplicate" panel at ticket creation. Dashboard: type/component distribution, team load, and AI agreement rate computed from `ReviewStatus`.
 **Done when:** a near-duplicate ticket surfaces the existing one before submit; the dashboard renders live metrics.
 
-### Stretch (only after M4)
+### M5 — Access control: who exists, and who sees what
+Two levels of role, because one cannot express both questions. **Global** (`app_user.role`, in the
+JWT): what you are on the platform — ADMIN approves accounts, MANAGER may create a project,
+DEVELOPER joins them. **Per project** (`project_member.role`, in the database, never in a token):
+`PROJECT_MANAGER` — the *chef de projet* — or `MEMBER`.
+
+Registration loses its `role` field and becomes a request: the account is `PENDING` until an
+administrator approves it and says what it is. Whoever creates a project is its first project
+manager, and manages its people themselves — so the administrator is not the bottleneck for every
+new person on every project. A project carries a secret `join_code` its manager can mail; the
+holder can ask to join, and the manager decides. React gains a router, because a mailed link is a
+URL.
+
+**Done when:** a new person registers, cannot log in, is approved by the admin, and sees no
+projects at all; they paste a join code, are accepted by that project's manager, and see exactly
+that one — and `/projects/{someone-elses-id}/board` answers 403 rather than rendering.
+
+### Stretch (only after M5)
 Notification service (WebSocket/email), missing-info bot, RAG-drafted first responses.

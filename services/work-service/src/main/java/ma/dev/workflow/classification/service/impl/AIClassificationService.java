@@ -9,6 +9,7 @@ import ma.dev.workflow.classification.models.enums.ReviewStatus;
 import ma.dev.workflow.classification.repositories.AIClassificationRepository;
 import ma.dev.workflow.classification.service.IAIClassificationService;
 import ma.dev.workflow.common.exception.BusinessRuleException;
+import ma.dev.workflow.common.security.ProjectAccess;
 import ma.dev.workflow.issue.events.IssueClassifiedEvent;
 import ma.dev.workflow.issue.models.Issue;
 import ma.dev.workflow.issue.models.enums.IssueType;
@@ -32,6 +33,7 @@ public class AIClassificationService implements IAIClassificationService {
     private final AIClassificationRepository classificationRepository;
     private final IssueRepository issueRepository;
     private final AIClassificationMapper classificationMapper;
+    private final ProjectAccess projectAccess;
 
     /**
      * Above this, the suggestion is written onto the issue with nobody watching.
@@ -46,10 +48,12 @@ public class AIClassificationService implements IAIClassificationService {
     public AIClassificationService(AIClassificationRepository classificationRepository,
                                    IssueRepository issueRepository,
                                    AIClassificationMapper classificationMapper,
+                                   ProjectAccess projectAccess,
                                    @Value("${app.classification.auto-apply-threshold}") float autoApplyThreshold) {
         this.classificationRepository = classificationRepository;
         this.issueRepository = issueRepository;
         this.classificationMapper = classificationMapper;
+        this.projectAccess = projectAccess;
         this.autoApplyThreshold = autoApplyThreshold;
     }
 
@@ -170,9 +174,19 @@ public class AIClassificationService implements IAIClassificationService {
                         "No classification for issue " + issueId + " yet."));
     }
 
+    /**
+     * The issue, if the caller is on its project.
+     *
+     * <p>Reached only from the HTTP paths — reading a suggestion, accepting it, overriding it.
+     * {@link #record} deliberately does not come through here: it runs on a RabbitMQ listener
+     * thread, where there is no request and therefore no security context to ask. A membership
+     * check there would throw on every message.
+     */
     private Issue requireIssue(Long issueId) {
-        return issueRepository.findById(issueId)
+        Issue issue = issueRepository.findById(issueId)
                 .orElseThrow(() -> new EntityNotFoundException("Issue not found: " + issueId));
+        projectAccess.requireMember(issue.getProject().getId());
+        return issue;
     }
 
     private <E extends Enum<E>> E parse(String value, Function<String, E> converter,

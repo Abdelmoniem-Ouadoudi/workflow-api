@@ -7,6 +7,8 @@ import ma.dev.workflow.classification.models.enums.Effort;
 import ma.dev.workflow.classification.models.enums.ReviewStatus;
 import ma.dev.workflow.classification.repositories.AIClassificationRepository;
 import ma.dev.workflow.common.exception.BusinessRuleException;
+import ma.dev.workflow.common.security.ProjectAccess;
+import ma.dev.workflow.project.models.Project;
 import ma.dev.workflow.issue.events.IssueClassifiedEvent;
 import ma.dev.workflow.issue.models.Issue;
 import ma.dev.workflow.issue.models.enums.IssueType;
@@ -51,11 +53,21 @@ class AIClassificationServiceTest {
         classificationRepository = mock(AIClassificationRepository.class);
         issueRepository = mock(IssueRepository.class);
         AIClassificationMapper mapper = mock(AIClassificationMapper.class);
+        // A mock that answers nothing: these tests exercise record(), which runs on a listener
+        // thread and never asks about membership. The accept/override tests go through
+        // requireIssue, where a do-nothing mock is exactly right - "the caller is allowed".
+        ProjectAccess projectAccess = mock(ProjectAccess.class);
 
-        service = new AIClassificationService(classificationRepository, issueRepository, mapper, THRESHOLD);
+        service = new AIClassificationService(classificationRepository, issueRepository, mapper,
+                projectAccess, THRESHOLD);
+
+        Project project = new Project();
+        project.setId(1L);
+        project.setKey("TEST");
 
         issue = new Issue();
         issue.setId(7L);
+        issue.setProject(project);
         issue.setIssueKey("TEST-7");
         issue.setType(IssueType.TASK);
         issue.setPriority(Priority.LOW);

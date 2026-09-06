@@ -1,103 +1,58 @@
-import { useEffect, useState } from 'react'
-import { api, setSessionExpiredHandler } from './api/client'
-import type { Project } from './api/types'
-import { endSession, getSession } from './auth/session'
-import type { Session } from './auth/session'
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { SessionProvider } from './auth/SessionContext'
+import { RequireAdmin, RequireAuth } from './auth/guards'
+import { AdminUsers } from './components/AdminUsers'
 import { Board } from './components/Board'
 import { Dashboard } from './components/Dashboard'
+import { JoinProject } from './components/JoinProject'
+import { PendingApproval } from './components/PendingApproval'
 import { ProjectList } from './components/ProjectList'
+import { ProjectMembers } from './components/ProjectMembers'
 import { SignIn } from './components/SignIn'
 
-type Check = 'checking' | 'done'
-
-/** Which screen is showing. Four of them now, and still no router — docs/BACKLOG.md item 11. */
-type Screen = 'projects' | 'board' | 'dashboard'
-
 /**
- * Four screens: sign in, then the project list, a board, or the dashboard.
+ * The routes.
  *
- * Still switched by state. The router argument gets stronger with each screen added — you cannot
- * refresh into the dashboard or link somebody to it — but a router is a dependency and a concept,
- * and the answer to "why is there no router" should be a decision rather than an oversight.
+ * <p>There was no router until M5, and its absence was a decision rather than an oversight —
+ * recorded in docs/BACKLOG.md as item 35, which said it would land "at the next screen". This is
+ * that milestone, and the argument finally settles itself: the whole point of a join code is that
+ * a project manager can mail somebody a link, and a link is a URL. Screens switched by a `useState`
+ * string cannot be linked to, bookmarked, or refreshed into.
+ *
+ * <p>Guards decide what is rendered, never what is allowed. Every rule below is enforced again in
+ * work-service and auth-service, which is the only place it counts — a guard is one localStorage
+ * edit away from being bypassed, and a service is not.
  */
 export function App() {
-  const [session, setSession] = useState<Session | null>(getSession)
-  const [project, setProject] = useState<Project | null>(null)
-  const [screen, setScreen] = useState<Screen>('projects')
-  const [check, setCheck] = useState<Check>(session === null ? 'done' : 'checking')
-
-  // The API clears the session on any 401 — an expired token, or a restarted auth-service with a
-  // different secret. This is how the app finds out and returns to the sign-in screen.
-  useEffect(() => {
-    setSessionExpiredHandler(() => {
-      setSession(null)
-      setProject(null)
-      setScreen('projects')
-    })
-  }, [])
-
-  // A token from localStorage is only unexpired, which is not the same as valid. Asking the
-  // server once on boot means the app never renders a board it is about to fail to load.
-  useEffect(() => {
-    if (session === null || check === 'done') return
-
-    api
-      .me()
-      .then(() => setCheck('done'))
-      .catch(() => {
-        // A 401 already cleared the session through the handler above. Anything else means the
-        // server is unreachable, and there is nothing to show behind a sign-in screen anyway.
-        setSession(null)
-        setCheck('done')
-      })
-  }, [session, check])
-
-  function signOut() {
-    endSession()
-    setSession(null)
-    setProject(null)
-    setScreen('projects')
-  }
-
-  function openProject(opened: Project) {
-    setProject(opened)
-    setScreen('board')
-  }
-
-  function backToProjects() {
-    setProject(null)
-    setScreen('projects')
-  }
-
-  if (session === null) {
-    return (
-      <SignIn
-        onSignedIn={(started) => {
-          setSession(started)
-          setCheck('done')
-        }}
-      />
-    )
-  }
-
-  if (check === 'checking') {
-    return <p className="page__loading page">Checking your session…</p>
-  }
-
-  if (screen === 'dashboard') {
-    return <Dashboard session={session} onLeave={backToProjects} onSignOut={signOut} />
-  }
-
-  if (screen === 'board' && project !== null) {
-    return <Board project={project} session={session} onLeave={backToProjects} />
-  }
-
   return (
-    <ProjectList
-      session={session}
-      onOpen={openProject}
-      onSignOut={signOut}
-      onOpenDashboard={() => setScreen('dashboard')}
-    />
+    <BrowserRouter>
+      <SessionProvider>
+        <Routes>
+          {/* Open, because not having a session is the reason you are here. */}
+          <Route path="/login" element={<SignIn mode="signIn" />} />
+          <Route path="/register" element={<SignIn mode="createAccount" />} />
+          <Route path="/pending" element={<PendingApproval />} />
+
+          <Route element={<RequireAuth />}>
+            <Route path="/projects" element={<ProjectList />} />
+            <Route path="/projects/:id/board" element={<Board />} />
+            <Route path="/projects/:id/members" element={<ProjectMembers />} />
+            <Route path="/dashboard" element={<Dashboard />} />
+
+            {/* Both forms: a code pasted by hand, and a link somebody was sent. */}
+            <Route path="/join" element={<JoinProject />} />
+            <Route path="/join/:code" element={<JoinProject />} />
+
+            <Route element={<RequireAdmin />}>
+              <Route path="/admin/users" element={<AdminUsers />} />
+            </Route>
+          </Route>
+
+          <Route path="/" element={<Navigate to="/projects" replace />} />
+          {/* Anything else, rather than a blank page with no way out. */}
+          <Route path="*" element={<Navigate to="/projects" replace />} />
+        </Routes>
+      </SessionProvider>
+    </BrowserRouter>
   )
 }

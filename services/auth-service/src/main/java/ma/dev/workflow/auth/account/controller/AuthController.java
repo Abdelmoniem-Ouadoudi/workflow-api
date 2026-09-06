@@ -4,6 +4,7 @@ import jakarta.validation.Valid;
 import ma.dev.workflow.auth.account.dto.CurrentUser;
 import ma.dev.workflow.auth.account.dto.LoginRequest;
 import ma.dev.workflow.auth.account.dto.RegisterRequest;
+import ma.dev.workflow.auth.account.dto.RegistrationReceipt;
 import ma.dev.workflow.auth.account.dto.TokenResponse;
 import ma.dev.workflow.auth.account.models.enums.Role;
 import ma.dev.workflow.auth.account.service.IAuthService;
@@ -29,10 +30,17 @@ public class AuthController {
         this.authService = authService;
     }
 
-    /** 201: a login was created. The token comes back with it, so there is no second round trip. */
+    /**
+     * 202, not 201.
+     *
+     * <p>A row really was created, so 201 is defensible. But 201 means "here is the thing you
+     * asked for", and what the person asked for was an account they can use — which they do not
+     * have yet. 202 says the request was accepted and is not finished, which is exactly true:
+     * an administrator still has to approve it.
+     */
     @PostMapping("/register")
-    @ResponseStatus(HttpStatus.CREATED)
-    public TokenResponse register(@Valid @RequestBody RegisterRequest request) {
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public RegistrationReceipt register(@Valid @RequestBody RegisterRequest request) {
         return authService.register(request);
     }
 

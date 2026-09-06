@@ -74,13 +74,18 @@ Only three paths are open without a token:
 
 | Open path | Why |
 |---|---|
-| `/auth/register`, `/auth/login` | Not having a token is the reason you are there. |
+| `/auth/register`, `/auth/login` | Not having a token is the reason you are there. Since M5 registering no longer returns one either — the account is PENDING until an administrator approves it. |
 | `/actuator/health` | A health check cannot need credentials. |
 | `/error` | Spring forwards failures here internally. Without it, a 404 came back as a 401. |
 
 **There are no role rules here.** The gateway answers one question: *is this a real caller?*
 Whether that caller may delete a user is a question only work-service can answer, because only
 work-service knows what its endpoints mean.
+
+M5 made that argument stronger rather than weaker. "May you read this issue" cannot be answered
+from a path at all: it depends on which project the issue turns out to belong to, and on a
+`project_member` row in a database the gateway has no connection to. A gateway that tried would
+need the domain model, and would stop being a gateway.
 
 ---
 
@@ -90,7 +95,7 @@ Three routes. Each one names a **service**, never a host and port.
 
 | Paths | Goes to |
 |---|---|
-| `/auth/**` | `lb://auth-service` |
+| `/auth/**`, `/admin/accounts/**` | `lb://auth-service` |
 | `/projects/**`, `/boards/**`, `/sprints/**`, `/issues/**`, `/users/**`, `/dashboard/**`, `/admin/issues/**` | `lb://work-service` |
 | `/similar/**`, `/admin/classification/**` | `lb://classification-service` |
 
@@ -103,9 +108,15 @@ sends is the URL the service receives. A stack trace can be read against the sam
 > service that was perfectly healthy. An allow-list is safe by default and silent when incomplete —
 > every new top-level path has to be added here.
 
-Note the split on `/admin`: `/admin/issues/**` goes to work-service, `/admin/classification/**`
-goes to the classifier. Same prefix, two services, because an operator's controls belong wherever
-the thing they operate lives.
+Note the split on `/admin`: `/admin/accounts/**` goes to auth-service, `/admin/issues/**` to
+work-service, `/admin/classification/**` to the classifier. **One prefix, three services**, because
+an operator's controls belong wherever the thing they operate lives — accounts are auth's, issues
+are work's, the dead-letter queue is the classifier's.
+
+M5's membership and join-request endpoints needed **no new route at all**: they are nested under
+`/projects/{id}/...`, which `/projects/**` already covers. That is worth noticing rather than
+taking for granted — nesting a resource under its parent is what keeps an exhaustive allow-list
+from growing a line per feature.
 
 ---
 

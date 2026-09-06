@@ -1,0 +1,49 @@
+databaseChangeLog:
+  # Three changeSets, not one: the column has to exist and be filled before it can be made
+  # NOT NULL. A single changeSet would either fail on a database that already has projects,
+  # or leave the constraint off on one that does not.
+
+  - changeSet:
+      id: 5.0.2
+      author: abdelmoniem
+      comment: >
+        The secret somebody is given so they can ask to join a project. Deliberately NOT
+        project_key: the key is printed on every ticket (WORK-12 is on every card), so using it
+        as the way in would let anybody who ever saw a ticket ask to join. The key is a display
+        name, the code is a secret, and the project manager can rotate it.
+      changes:
+        - addColumn:
+            tableName: project
+            columns:
+              - column:
+                  name: join_code
+                  type: varchar(16)
+
+  - changeSet:
+      id: 5.0.3
+      author: abdelmoniem
+      comment: >
+        Backfill projects that existed before M5. Uppercase hex from md5, with 0 and 1 translated
+        away to match the alphabet JoinCodeGenerator uses - a code gets read off a screen and
+        typed into another one, so O/0 and I/1 must not both be possible.
+      changes:
+        - sql:
+            sql: >
+              UPDATE project
+                 SET join_code = translate(upper(substr(md5(random()::text || id::text), 1, 12)), '01', 'XY')
+               WHERE join_code IS NULL
+            rollback: UPDATE project SET join_code = NULL
+
+  - changeSet:
+      id: 5.0.4
+      author: abdelmoniem
+      comment: Only now can the column carry its constraints.
+      changes:
+        - addNotNullConstraint:
+            tableName: project
+            columnName: join_code
+            columnDataType: varchar(16)
+        - addUniqueConstraint:
+            constraintName: uq_project_join_code
+            tableName: project
+            columnNames: join_code

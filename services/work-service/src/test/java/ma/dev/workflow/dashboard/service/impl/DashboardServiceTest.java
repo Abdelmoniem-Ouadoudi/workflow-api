@@ -4,6 +4,8 @@ import ma.dev.workflow.classification.models.enums.ReviewStatus;
 import ma.dev.workflow.dashboard.dto.CountByLabel;
 import ma.dev.workflow.dashboard.dto.DashboardDTO;
 import ma.dev.workflow.dashboard.repositories.DashboardRepository;
+import ma.dev.workflow.common.security.ProjectAccess;
+import ma.dev.workflow.project.repositories.ProjectRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -23,20 +25,31 @@ import static org.mockito.Mockito.when;
  */
 class DashboardServiceTest {
 
+    /** The projects the caller can see. Which ones they are does not matter to the arithmetic. */
+    private static final List<Long> PROJECTS = List.of(1L);
+
     private DashboardRepository repository;
     private DashboardService service;
 
     @BeforeEach
     void setUp() {
         repository = mock(DashboardRepository.class);
-        service = new DashboardService(repository);
+        ProjectRepository projectRepository = mock(ProjectRepository.class);
+
+        // Not an admin, and on one project. Scoping is tested by ProjectAccessTest; what is under
+        // test here is the agreement rate, so this only has to be non-empty.
+        ProjectAccess projectAccess = mock(ProjectAccess.class);
+        when(projectAccess.isAdmin()).thenReturn(false);
+        when(projectAccess.myProjectIds()).thenReturn(PROJECTS);
+
+        service = new DashboardService(repository, projectRepository, projectAccess);
 
         // The distributions are plain group-bys and are not what this test is about.
-        when(repository.countByType()).thenReturn(List.of());
-        when(repository.countByPriority()).thenReturn(List.of());
-        when(repository.countByStatus()).thenReturn(List.of());
-        when(repository.countByTeam()).thenReturn(List.of());
-        when(repository.countByEffort()).thenReturn(List.of());
+        when(repository.countByType(PROJECTS)).thenReturn(List.of());
+        when(repository.countByPriority(PROJECTS)).thenReturn(List.of());
+        when(repository.countByStatus(PROJECTS)).thenReturn(List.of());
+        when(repository.countByTeam(PROJECTS)).thenReturn(List.of());
+        when(repository.countByEffort(PROJECTS)).thenReturn(List.of());
     }
 
     @Test
@@ -108,12 +121,12 @@ class DashboardServiceTest {
     }
 
     private void givenReviews(long autoApplied, long confirmed, long overridden, long pending) {
-        when(repository.countByReviewStatus()).thenReturn(List.of(
+        when(repository.countByReviewStatus(PROJECTS)).thenReturn(List.of(
                 new CountByLabel(ReviewStatus.AUTO_APPLIED.name(), autoApplied),
                 new CountByLabel(ReviewStatus.CONFIRMED.name(), confirmed),
                 new CountByLabel(ReviewStatus.OVERRIDDEN.name(), overridden),
                 new CountByLabel(ReviewStatus.PENDING.name(), pending)));
-        when(repository.countClassifications())
+        when(repository.countClassifications(PROJECTS))
                 .thenReturn(autoApplied + confirmed + overridden + pending);
     }
 }

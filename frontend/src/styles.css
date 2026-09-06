@@ -259,6 +259,31 @@ body {
   cursor: default;
 }
 
+/*
+  The secondary action, for when two buttons sit side by side and only one of them is the one
+  you meant. Outlined rather than filled: two solid buttons next to each other give a row two
+  centres of gravity and neither reads as the answer.
+*/
+.button--quiet {
+  color: var(--ink);
+  background: transparent;
+  border-color: var(--rule);
+  text-decoration: none;
+  display: inline-block;
+}
+
+.button--quiet:hover {
+  background: var(--panel);
+  border-color: var(--ink-soft);
+}
+
+/* Buttons that are links keep the button's shape and lose the underline. */
+a.button {
+  text-decoration: none;
+  display: inline-block;
+  text-align: center;
+}
+
 /* --- projects list ------------------------------------------------------- */
 
 .projects {
@@ -281,11 +306,36 @@ body {
   font-size: 15px;
   color: var(--ink);
   text-align: left;
+}
+
+/* Only the rows that are themselves the click target. A row holding buttons is not. */
+button.projects__row,
+a.projects__row {
   cursor: pointer;
 }
 
 .projects__row:hover {
   background: var(--panel);
+}
+
+/*
+  A project row is two targets now, not one: open the board, or go to its people. The link takes
+  the space so the whole row is still clickable for the common case, and the People button sits
+  at the end where a second action belongs.
+*/
+.projects__open {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--step) * 2);
+  flex: 1;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+/* Rows on the admin and members screens hold their actions at the far end. */
+.projects__row > .chip__actions {
+  margin-left: auto;
 }
 
 .projects__key {
@@ -1011,11 +1061,22 @@ body {
   border-bottom: 1px solid var(--rule);
   padding: 0 0 1px;
   cursor: pointer;
+  /* The admin link shares this class with the sign-out button. */
+  text-decoration: none;
 }
 
 .whoami__out:hover {
   color: var(--stop);
   border-bottom-color: var(--stop);
+}
+
+/*
+  Sign out is the destructive one, and it is the last thing in the row. The admin link beside it
+  is ordinary navigation, so it does not go red on hover as though it were about to end something.
+*/
+a.whoami__out:hover {
+  color: var(--ink);
+  border-bottom-color: var(--ink);
 }
 
 .comment-compose__as {

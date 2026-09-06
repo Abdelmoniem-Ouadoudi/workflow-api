@@ -1,6 +1,7 @@
 package ma.dev.workflow.issue_attachment.service.impl;
 
 import jakarta.persistence.EntityNotFoundException;
+import ma.dev.workflow.common.security.ProjectAccess;
 import ma.dev.workflow.issue.models.Issue;
 import ma.dev.workflow.issue.repositories.IssueRepository;
 import ma.dev.workflow.issue_attachment.dto.IssueAttachmentDTO;
@@ -20,13 +21,16 @@ public class IssueAttachmentService implements IIssueAttachmentService {
     private final IssueAttachmentRepository attachmentRepository;
     private final IssueRepository issueRepository;
     private final IssueAttachmentMapper attachmentMapper;
+    private final ProjectAccess projectAccess;
 
     public IssueAttachmentService(IssueAttachmentRepository attachmentRepository,
                                   IssueRepository issueRepository,
-                                  IssueAttachmentMapper attachmentMapper) {
+                                  IssueAttachmentMapper attachmentMapper,
+                                  ProjectAccess projectAccess) {
         this.attachmentRepository = attachmentRepository;
         this.issueRepository = issueRepository;
         this.attachmentMapper = attachmentMapper;
+        this.projectAccess = projectAccess;
     }
 
     @Override
@@ -52,6 +56,7 @@ public class IssueAttachmentService implements IIssueAttachmentService {
     @Override
     @Transactional
     public void delete(Long issueId, Long attachmentId) {
+        requireIssue(issueId);
         IssueAttachment attachment = attachmentRepository.findById(attachmentId)
                 .orElseThrow(() -> new EntityNotFoundException("Attachment not found: " + attachmentId));
         if (!attachment.getIssue().getId().equals(issueId)) {
@@ -61,8 +66,11 @@ public class IssueAttachmentService implements IIssueAttachmentService {
         attachmentRepository.delete(attachment);
     }
 
+    /** Every method here goes through this, so the membership check is stated once. */
     private Issue requireIssue(Long issueId) {
-        return issueRepository.findById(issueId)
+        Issue issue = issueRepository.findById(issueId)
                 .orElseThrow(() -> new EntityNotFoundException("Issue not found: " + issueId));
+        projectAccess.requireMember(issue.getProject().getId());
+        return issue;
     }
 }

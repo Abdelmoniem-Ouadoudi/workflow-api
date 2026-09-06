@@ -7,7 +7,7 @@ Since M4 there are **three databases**, all in the same Postgres process on 5433
 
 | Database | Owner | Holds |
 |---|---|---|
-| `workflow` | work-service | 8 business tables — projects, boards, sprints, issues, comments, attachments, people, AI classifications |
+| `workflow` | work-service | 10 business tables — projects, boards, sprints, issues, comments, attachments, people, AI classifications, and since M5 project membership and join requests |
 | `authdb` | auth-service | 1 table — `account`, the credentials |
 | `vectordb` | classification-service | 1 table — `issue_vector`, one embedding per issue |
 
@@ -19,7 +19,8 @@ file.
 rebuilt by replaying `issue.created` for each issue, which is what `POST /admin/issues/reindex`
 does. The other two hold the record.
 
-All eight business tables are here. `ai_classification` arrived at M3.
+All ten business tables are here. `ai_classification` arrived at M3; `project_member` and
+`project_join_request` arrived at M5.
 
 ---
 
@@ -29,6 +30,10 @@ All eight business tables are here. `ai_classification` arrived at M3.
 erDiagram
     PROJECT   ||--o{ BOARD            : "has (at least 1)"
     PROJECT   ||--o{ ISSUE            : "contains"
+    PROJECT   ||--o{ PROJECT_MEMBER   : "is staffed by"
+    APP_USER  ||--o{ PROJECT_MEMBER   : "belongs to"
+    PROJECT   ||--o{ PROJECT_JOIN_REQUEST : "receives"
+    APP_USER  ||--o{ PROJECT_JOIN_REQUEST : "asks"
     BOARD     ||--o{ SPRINT           : "plans"
     BOARD     |o--o{ ISSUE            : "organizes"
     SPRINT    |o--o{ ISSUE            : "includes"
@@ -58,6 +63,11 @@ Read the symbols as: `||` exactly one, `|o` zero or one, `o{` zero or more.
 | `issue_comment` | `issue_id` | `issue` | **CASCADE** | comments die with the issue |
 | `issue_comment` | `author_id` | `app_user` | **RESTRICT** | the author cannot be deleted |
 | `issue_attachment` | `issue_id` | `issue` | **CASCADE** | attachments die with the issue |
+| `project_member` | `project_id` | `project` | **CASCADE** | membership of a deleted project means nothing |
+| `project_member` | `user_id` | `app_user` | **RESTRICT** | consistent with every other link to a person |
+| `project_join_request` | `project_id` | `project` | **CASCADE** | the request dies with what it asked for |
+| `project_join_request` | `user_id` | `app_user` | **RESTRICT** | |
+| `project_join_request` | `decided_by_user_id` | `app_user` | **RESTRICT** | who approved it is part of the record |
 
 Three delete rules, three different meanings:
 
@@ -81,6 +91,7 @@ The container. Everything else hangs off it.
 | `name` | varchar(150) | no | |
 | `description` | text | yes | |
 | `issue_counter` | bigint | no | default 0. Last number handed out for an issue key |
+| `join_code` | varchar(16) | no | **unique**. The secret you mail to somebody so they can ask to join. Added at M5 |
 | `created_at` / `updated_at` | timestamp | no | filled by Hibernate |
 
 **Relationships**
@@ -89,6 +100,14 @@ The container. Everything else hangs off it.
   so creating a project also creates a default KANBAN board, and deleting the last board of a
   project is refused with 422.
 - one project → many **issues**.
+- one project → many **members** and many **join requests** (M5).
+
+**`join_code` is not `project_key`, and the difference is the whole point.** `project_key` is
+printed on every ticket — `WORK-12` is on every card on the board. If it were also the way in,
+anyone who had ever seen a ticket could ask to join. The key is a display name; the code is a
+secret, twelve random characters, and the project manager can rotate it. Rotating invalidates
+nothing that already exists: current members stay members and open requests stay open. It only
+stops the *next* person from using an address book entry from a year ago.
 
 **`issue_counter` is the interesting column.** It is incremented under `SELECT ... FOR UPDATE` on
 the project row, then `project_key + "-" + counter` becomes the issue key. The row lock is what
@@ -115,13 +134,96 @@ returns the session user, not your table.
 - one user → many **issues** as `reporter` (required)
 - one user → many **issues** as `assignee` (optional)
 - one user → many **comments** as `author`
+- one user → many **project memberships** and **join requests** (M5)
 
 **Two foreign keys from `issue` point back here** — `reporter_id` and `assignee_id`. That is why
 neither side maps a `@OneToMany` collection: with two paths to the same table, an unnamed inverse
 mapping makes Hibernate invent a third join table.
 
-**No `password_hash` column yet.** There is no login until M2, so the column would sit empty
-and unvalidated. It arrives in an M2 migration.
+**No `password_hash` column here, and there never will be.** The hash lives on `account` in
+`authdb`, owned by auth-service — see that table at the end of this file. The profile and the
+credential have different owners.
+
+**`is_active` here is a mirror, not the truth.** Since M5 the authority on whether somebody may
+log in is `account.status` in `authdb`, which has three values rather than two. This column is
+kept in step by auth-service so that work-service can filter an assignee dropdown without a
+network call. A `PENDING` account has `is_active = false` here, which is what stops an unapproved
+person from being assigned work.
+
+---
+
+# project_member
+### added at M5
+
+Who is on a project, and what they are on it.
+
+| Column | Type | Null | Note |
+|---|---|---|---|
+| `id` | bigint | no | primary key |
+| `project_id` | bigint | **no** | → `project`, CASCADE |
+| `user_id` | bigint | **no** | → `app_user`, RESTRICT |
+| `role` | varchar(20) | no | `PROJECT_MANAGER` or `MEMBER` |
+| `joined_at` | timestamp | no | |
+
+Constraints and indexes:
+
+```sql
+ALTER TABLE project_member ADD CONSTRAINT uq_project_member UNIQUE (project_id, user_id);
+CREATE INDEX idx_project_member_user ON project_member (user_id);
+```
+
+**This is an association class, not a plain join table.** A pure join table would carry only the
+two ids. This one carries a `role`, because the same person is the manager of one project and an
+ordinary member of another. That is the whole reason the project role cannot live on `app_user`.
+
+**It has a surrogate `id` rather than a composite primary key.** `(project_id, user_id)` would work
+as the key, but every other entity in this schema is `Long id` with `IDENTITY`, and a composite key
+in JPA means `@EmbeddedId` and a separate id class. The unique constraint gives the same guarantee
+for one line. Matching the code around it was worth more than saving a column.
+
+**`idx_project_member_user` is the load-bearing index.** Every single request a signed-in person
+makes starts by asking "which projects are yours" — it decides what `GET /projects` returns and
+whether `GET /issues/{id}` is allowed at all. Without an index on `user_id` that is a full scan of
+the membership table on every call.
+
+**Why RESTRICT on `user_id`** — the same reason as `issue.reporter_id`. Users are deactivated,
+never deleted, so nothing should be able to quietly erase the record of who was on a project.
+
+---
+
+# project_join_request
+### added at M5
+
+Somebody was given a project's join code and is asking to be let in.
+
+| Column | Type | Null | Note |
+|---|---|---|---|
+| `id` | bigint | no | primary key |
+| `project_id` | bigint | **no** | → `project`, CASCADE |
+| `user_id` | bigint | **no** | → `app_user`, RESTRICT |
+| `status` | varchar(20) | no | `PENDING` → `APPROVED` or `REJECTED` |
+| `requested_at` | timestamp | no | |
+| `decided_at` | timestamp | **yes** | null while still pending |
+| `decided_by_user_id` | bigint | **yes** | → `app_user`, RESTRICT. Null while still pending |
+
+```sql
+CREATE UNIQUE INDEX uq_join_request_pending
+  ON project_join_request (project_id, user_id) WHERE status = 'PENDING';
+CREATE INDEX idx_join_request_project_status ON project_join_request (project_id, status);
+```
+
+**The partial unique index is the same trick as the one active sprint per board.** It allows any
+number of `APPROVED` and `REJECTED` rows — somebody may leave a project and ask again later — but
+only one `PENDING` row per person per project. A Java check alone loses that race: two double-clicks
+both read "no pending request", both insert, and the manager sees the same request twice with no
+error anywhere. The Java check is there for the error message; the index is there for the truth.
+
+**Rejected rows are kept, not deleted.** The history of who asked and who said no is the record.
+It is also what a second request has to be checked against.
+
+**`decided_by_user_id` is nullable and that is not laziness.** A pending request genuinely has no
+decider yet. Making it `NOT NULL` would need a placeholder row meaning "nobody", which is a lie in
+the schema to avoid a null in Java.
 
 ---
 
@@ -344,12 +446,34 @@ One login. It holds only what is needed to prove who you are.
 | `password_hash` | varchar(72) | not null — BCrypt writes 60 characters; 72 leaves room for a longer prefix if the cost factor or algorithm changes |
 | `role` | varchar(20) | not null — `DEVELOPER`, `MANAGER`, `ADMIN`, same three values as `app_user.role` |
 | `work_user_id` | bigint | not null, **unique**, and deliberately **not a foreign key** |
-| `is_active` | boolean | not null, default true |
+| `status` | varchar(20) | not null — `PENDING`, `ACTIVE`, `DISABLED`. Replaced `is_active` at M5 |
 | `created_at` / `updated_at` | timestamp | not null |
 
 **No email.** The address lives on `app_user`, which work-service owns. Registration passes it
 through and forgets it, because a second copy would be a second thing to change when someone
 updates their address, with no rule saying which one wins.
+
+### `status` replaced a boolean at M5, because two states were not enough
+
+`is_active` could say "may log in" and "may not". It could not tell those two apart:
+
+| Status | What it means | Login answers |
+|---|---|---|
+| `PENDING` | registered, waiting for an administrator | `403 ACCOUNT_PENDING` |
+| `ACTIVE` | approved | a token |
+| `DISABLED` | approved once, switched off since | `403 ACCOUNT_DISABLED` |
+
+Those are two different messages for the person reading the screen — *"we are getting to you"*
+versus *"talk to your administrator"* — and merging them into one boolean would have made the
+first registration look like a punishment.
+
+**This column is the authority; `app_user.is_active` is a copy.** Login is answered here, by one
+service, with no network call. work-service keeps a boolean so it can filter a dropdown, and
+auth-service updates it when the status changes.
+
+**One account was never approved by anybody: the first administrator.** Self-selected roles are
+gone, so no ADMIN could otherwise exist to approve the first one. It is seeded by a migration
+with `status = ACTIVE`, and it is the only row in this table that no human decided on.
 
 **No password column on `app_user`, and there never will be.** The profile and the credential have
 different owners and different lifecycles. `app_user` describes a person; `account` proves one.
@@ -440,6 +564,9 @@ These survive even if someone connects with pgAdmin and writes SQL by hand:
 | a reporter or comment author cannot be deleted | `ON DELETE RESTRICT` |
 | one login per username, one login per profile | `UNIQUE (username)`, `UNIQUE (work_user_id)` on `account` |
 | at most one AI classification per issue | `UNIQUE (issue_id)` on `ai_classification` |
+| a person is on a project at most once | `UNIQUE (project_id, user_id)` on `project_member` |
+| project join codes are unique | `UNIQUE (join_code)` on `project` |
+| one open join request per person per project | partial unique index `WHERE status = 'PENDING'` |
 
 # Rules only the code enforces
 
@@ -457,3 +584,11 @@ These the schema cannot express, so they live in the service layer:
 | every `account.work_user_id` points at a real `app_user` | `AuthService.register` — no constraint can cross a database |
 | an issue's reporter is the caller, not the request body | `IssueService.create` via `CurrentUser.requireId` |
 | a comment's author is the caller, not the request body | `IssueCommentService.create` via `CurrentUser.requireId` |
+| you only see projects you are a member of | `ProjectAccess.requireMember`, `ProjectAccess.myProjectIds` |
+| only a project manager changes a project's people or settings | `ProjectAccess.requireProjectManager` |
+| only a global MANAGER or ADMIN creates a project | `ProjectAccess.requireCanCreateProjects` |
+| whoever creates a project is its first project manager | `ProjectService.create` |
+| a project always keeps at least one project manager | `ProjectMemberService` — 422 `LAST_PROJECT_MANAGER` |
+| an issue is only assigned to a member of its project | `IssueService.assign` — 422 `ASSIGNEE_NOT_A_MEMBER` |
+| a PENDING account cannot log in | `AccountDetailsService` — 403 `ACCOUNT_PENDING` |
+| the global role changes in auth-service only, then is mirrored | `AdminAccountService` — nothing else may write `app_user.role` |

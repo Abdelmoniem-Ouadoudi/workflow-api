@@ -13,7 +13,11 @@ spring:
             - id: auth-service
               uri: lb://auth-service
               predicates:
-                - Path=/auth/**
+                # /admin/accounts is auth-service's: an operator's controls live wherever the
+                # thing they operate lives, which is the same reason /admin/issues goes to
+                # work-service and /admin/classification to the classifier. Three services, one
+                # prefix, and the segment after it decides.
+                - Path=/auth/**,/admin/accounts/**
               filters:
                 - name: CircuitBreaker
                   args:

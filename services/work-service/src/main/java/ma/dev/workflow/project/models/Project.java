@@ -36,6 +36,14 @@ public class Project {
     @Column(name = "issue_counter", nullable = false)
     private Long issueCounter = 0L;
 
+    /**
+     * The secret somebody is given so they can ask to join. Deliberately not {@link #key}: the key
+     * is printed on every ticket, so using it as the way in would let anybody who has ever seen a
+     * card ask for access. Rotatable by the project manager.
+     */
+    @Column(name = "join_code", nullable = false, unique = true, length = 16)
+    private String joinCode;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;

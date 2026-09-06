@@ -3,3 +3,8 @@ databaseChangeLog:
   # the order migrations must run in.
   - include:
       file: db/changelog/changes/m2/2.0.1-create-account-table.yml
+  # M5. The status column must exist before the seed can set it, so the order here matters.
+  - include:
+      file: db/changelog/changes/m5/5.0.1-account-status.yml
+  - include:
+      file: db/changelog/changes/m5/5.0.4-seed-bootstrap-admin.yml

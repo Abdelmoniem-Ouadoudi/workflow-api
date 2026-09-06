@@ -36,9 +36,65 @@ An issue can sit in the **backlog** with no sprint. That is why the link from sp
 | `/issues` | plus `/{id}/status`, `/{id}/assignee` |
 | `/issues/{id}/comments`, `/issues/{id}/attachments` | nested under their issue |
 | `/issues/{id}/classification` | read the AI suggestion, `/accept` it, `/override` it |
-| `/users` | `POST` is **SERVICE-only**, `DELETE` is **ADMIN-only** |
-| `/dashboard` | one call, every number on the screen |
+| `/projects/{id}/members` | who is on it · add · change their project role · remove |
+| `/projects/{id}/join-code` | the secret to mail somebody, plus `/rotate`. **Project manager only.** |
+| `/projects/lookup` | turns a join code into a project name, so the asker can check before asking |
+| `/projects/{id}/join-requests` | ask to join · the manager's queue · `/approve` · `/reject` |
+| `/users` | `GET` is **ADMIN-only** (it returns everyone's email), `POST` and the two mirror endpoints are **SERVICE-only**, `DELETE` is **ADMIN-only** |
+| `/dashboard` | one call, every number on the screen — for the projects you are on |
 | `/admin/issues/reindex` | **ADMIN-only.** Replays every issue to rebuild the vectors. |
+
+---
+
+## Who sees what — M5
+
+Two levels of role, because one cannot answer both questions:
+
+| Question | Answered by | Lives in |
+|---|---|---|
+| What are you on the **platform**? | `Role` — DEVELOPER / MANAGER / ADMIN | the JWT `role` claim |
+| What are you inside **this project**? | `ProjectRole` — PROJECT_MANAGER / MEMBER | `project_member`, read per request |
+
+```mermaid
+flowchart TB
+    REQ["a request with a token"]
+    ADMIN{"global role = ADMIN ?"}
+    MEM{"is there a project_member row<br/>for this person and this project ?"}
+    MGR{"is that row PROJECT_MANAGER ?"}
+    ALL["everything"]
+    WORK["read and work the project"]
+    RUN["also: its people, its join code,<br/>rename it, delete it"]
+    NO["403 NOT_A_MEMBER"]
+
+    REQ --> ADMIN
+    ADMIN -->|yes| ALL
+    ADMIN -->|no| MEM
+    MEM -->|no| NO
+    MEM -->|yes| WORK
+    WORK --> MGR
+    MGR -->|yes| RUN
+```
+
+**`ProjectAccess` is the one place every one of those questions is asked.** Not `@PreAuthorize`:
+`GET /issues/{id}` has to load the issue before anyone knows which project it belongs to, and
+therefore whether the caller was allowed to see it. The check happens in the service, after the row
+is in hand — the same place, and for the same reason, as the transition map below.
+
+**Whoever creates a project is its first project manager.** Nobody appoints them, because there is
+nobody on the project yet to do the appointing — and a project that started with no manager could
+never gain one without an administrator stepping in every time.
+
+**An administrator passes everything by a short-circuit, not by a membership row in every project.**
+Rows would be a lie that needs maintaining, and would be wrong the moment somebody created a
+project.
+
+### The half that is easy to get wrong
+
+Filtering `GET /projects` is decoration on its own: the project vanishes from a list while
+`/issues/1`, `/issues/2` still answer one by one. Every entry point that resolves to a project
+checks membership — boards, sprints, issues, comments, attachments, classifications, and the
+dashboard. `smoke-test.sh` proves it by asking for a project **by id** with a valid token belonging
+to somebody else, which is the only way the claim means anything.
 
 ---
 
@@ -257,10 +313,21 @@ live:
 | Rule | Why |
 |---|---|
 | `POST /users` needs `ROLE_SERVICE` | Only auth-service creates profiles, using its 60-second token. |
+| `PUT /users/*/role`, `PUT /users/*/active` need `ROLE_SERVICE` | The global role and the account status belong to auth-service, which stamps one into tokens and answers logins with the other. These exist so it can mirror its decision here, and a browser cannot reach them. |
+| `GET /users` needs `ROLE_ADMIN` or `ROLE_SERVICE` | It returns everybody's email. Any signed-in caller could read it before M5, because the board's assignee dropdown needed it; that dropdown reads `GET /projects/{id}/members` now. |
 | `DELETE /users/**` needs `ROLE_ADMIN` | Destructive. |
 | `/admin/**` needs `ROLE_ADMIN` | Operator controls. |
-| everything else | `authenticated()` — deny by default. |
+| everything else | `authenticated()` — deny by default, **and then** a membership check in the service. |
 | `/error` | `permitAll()`, or a 404 comes back as a 401 and hides what really happened. |
+
+**A path rule is not the whole answer here.** `authenticated()` gets a caller past the filter chain;
+`ProjectAccess` decides whether the row they asked for is any of their business. The two are
+different questions and only the first one can be answered from a URL.
+
+**The bug M5 fixed.** `PUT /users/{id}` used to write `app_user.role` while tokens went on being
+minted from `account.role` in the other database. Promoting somebody changed the profile and
+nothing else: every token they were ever issued kept the old role, and nothing anywhere said so.
+The role now changes in auth-service only and arrives here through `PUT /users/{id}/role`.
 
 **No CORS at all.** See [gateway](gateway.md) for the duplicate-header bug that removed it.
 
@@ -268,6 +335,8 @@ live:
 
 ## Sentence for the defence
 
-> work-service is the application. Two things are worth pointing at: the transition map, which is a
-> rule the database cannot express because it depends on the previous value; and `AFTER_COMMIT`
-> publishing, which guarantees a message is never sent about a row that does not exist yet.
+> work-service is the application. Three things are worth pointing at: the transition map, which is
+> a rule the database cannot express because it depends on the previous value; `AFTER_COMMIT`
+> publishing, which guarantees a message is never sent about a row that does not exist yet; and
+> `ProjectAccess`, which is checked in the service rather than on the path, because whether you may
+> read an issue depends on the project it turns out to belong to.

@@ -1,5 +1,7 @@
 import { endSession, getSession, startSession } from '../auth/session'
 import type {
+  AccountStatus,
+  AdminAccount,
   AIClassification,
   ApiErrorBody,
   Board,
@@ -12,8 +14,13 @@ import type {
   IssueAssignment,
   IssueComment,
   IssueType,
+  JoinRequest,
   Priority,
   Project,
+  ProjectLookup,
+  ProjectMember,
+  ProjectRole,
+  RegistrationReceipt,
   Role,
   Status,
   TokenResponse,
@@ -148,16 +155,22 @@ export interface Credentials {
 
 export interface Registration extends Credentials {
   email: string
-  role: Role
 }
 
 export const api = {
+  /**
+   * No `.then(startSession)` any more, and no token in the reply.
+   *
+   * Registering creates a PENDING account that cannot log in until an administrator approves it,
+   * so there is no session to start. The role is gone from the body too — it used to be sent from
+   * here, which meant anybody could register themselves as an administrator.
+   */
   register: (registration: Registration) =>
-    request<TokenResponse>('/auth/register', {
+    request<RegistrationReceipt>('/auth/register', {
       method: 'POST',
       body: JSON.stringify(registration),
       anonymous: true,
-    }).then(startSession),
+    }),
 
   login: (credentials: Credentials) =>
     request<TokenResponse>('/auth/login', {
@@ -186,6 +199,9 @@ export const api = {
 
   listProjects: () => request<Project[]>('/projects'),
 
+  /** 403 if you are not on it — which is how a bookmarked board URL is refused. */
+  getProject: (id: number) => request<Project>(`/projects/${id}`),
+
   createProject: (project: NewProject) =>
     request<Project>('/projects', { method: 'POST', body: JSON.stringify(project) }),
 
@@ -193,7 +209,99 @@ export const api = {
 
   boardView: (boardId: number) => request<BoardView>(`/boards/${boardId}/view`),
 
+  /**
+   * ADMIN only since M5 — it returns every user's email address. The board's assignee dropdown
+   * used to call this; it calls `projectMembers` now, which is both narrower and more correct,
+   * because work can only be given to somebody who is on the project.
+   */
   listUsers: () => request<User[]>('/users'),
+
+  // ----- Project membership: the chef de projet's screen -----
+
+  projectMembers: (projectId: number) =>
+    request<ProjectMember[]>(`/projects/${projectId}/members`),
+
+  addProjectMember: (projectId: number, userId: number, role: ProjectRole) =>
+    request<ProjectMember>(`/projects/${projectId}/members`, {
+      method: 'POST',
+      body: JSON.stringify({ userId, role }),
+    }),
+
+  changeProjectMemberRole: (projectId: number, userId: number, role: ProjectRole) =>
+    request<ProjectMember>(`/projects/${projectId}/members/${userId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ role }),
+    }),
+
+  removeProjectMember: (projectId: number, userId: number) =>
+    request<void>(`/projects/${projectId}/members/${userId}`, { method: 'DELETE' }),
+
+  /** The secret to mail somebody. Only a project manager may read it. */
+  joinCode: (projectId: number) =>
+    request<{ joinCode: string }>(`/projects/${projectId}/join-code`),
+
+  /** A new code. Current members stay members and open requests stay open. */
+  rotateJoinCode: (projectId: number) =>
+    request<{ joinCode: string }>(`/projects/${projectId}/join-code/rotate`, { method: 'POST' }),
+
+  // ----- Joining a project with a code somebody mailed you -----
+
+  /**
+   * POST for a read, deliberately. The code is a secret, and a query string lands in browser
+   * history, in the gateway's access log, and in a Referer header on the next request.
+   */
+  lookupProject: (joinCode: string) =>
+    request<ProjectLookup>('/projects/lookup', {
+      method: 'POST',
+      body: JSON.stringify({ joinCode }),
+    }),
+
+  requestToJoin: (projectId: number, joinCode: string) =>
+    request<JoinRequest>(`/projects/${projectId}/join-requests`, {
+      method: 'POST',
+      body: JSON.stringify({ joinCode }),
+    }),
+
+  myJoinRequests: () => request<JoinRequest[]>('/projects/join-requests/mine'),
+
+  projectJoinRequests: (projectId: number) =>
+    request<JoinRequest[]>(`/projects/${projectId}/join-requests`),
+
+  approveJoinRequest: (projectId: number, requestId: number) =>
+    request<JoinRequest>(`/projects/${projectId}/join-requests/${requestId}/approve`, {
+      method: 'POST',
+    }),
+
+  rejectJoinRequest: (projectId: number, requestId: number) =>
+    request<JoinRequest>(`/projects/${projectId}/join-requests/${requestId}/reject`, {
+      method: 'POST',
+    }),
+
+  // ----- The administrator's console. Served by auth-service, routed through the gateway. -----
+
+  adminAccounts: (status?: AccountStatus) =>
+    request<AdminAccount[]>(`/admin/accounts${status === undefined ? '' : `?status=${status}`}`),
+
+  approveAccount: (id: number, role: Role) =>
+    request<AdminAccount>(`/admin/accounts/${id}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({ role }),
+    }),
+
+  rejectAccount: (id: number) =>
+    request<AdminAccount>(`/admin/accounts/${id}/reject`, { method: 'POST' }),
+
+  changeAccountRole: (id: number, role: Role) =>
+    request<AdminAccount>(`/admin/accounts/${id}/role`, {
+      method: 'PUT',
+      body: JSON.stringify({ role }),
+    }),
+
+  enableAccount: (id: number) =>
+    request<AdminAccount>(`/admin/accounts/${id}/enable`, { method: 'POST' }),
+
+  disableAccount: (id: number) =>
+    request<AdminAccount>(`/admin/accounts/${id}/disable`, { method: 'POST' }),
 
   createIssue: (issue: NewIssue) =>
     request<Issue>('/issues', { method: 'POST', body: JSON.stringify(issue) }),

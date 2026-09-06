@@ -222,6 +222,88 @@ false positive costs a glance; a false negative costs a duplicate ticket.
 
 ---
 
+## 10. Two levels of role, and only one of them is in the token — **M5 · BUILT**
+
+**Build:** a global role in the JWT, and a per-project role in the database.
+
+The two answer different questions and neither can express the other:
+
+| Question | Answered by | Lives in |
+|---|---|---|
+| What are you on the **platform**? | `Role` — DEVELOPER / MANAGER / ADMIN | `app_user.role`, the JWT `role` claim |
+| What are you inside **this project**? | `ProjectRole` — PROJECT_MANAGER / MEMBER | `project_member.role`, read per request |
+
+A global role cannot say "manager here, ordinary member there", which is the normal case: the
+person who started a project runs it and is a pair of hands on somebody else's. A project role
+cannot exist before any project does, which is the situation the first administrator is in.
+
+**The project role is deliberately not a claim.** It changes the moment a manager adds or removes
+somebody, and a token lives an hour with no way to recall it. Authorization data that changes
+belongs in the database, read on the request that needs it.
+
+> The token says what you are on the platform, because that changes rarely and an administrator
+> decides it. What you are on a project is read from the database every time, because a project
+> manager changes it while people are working and a token cannot be taken back.
+
+**Where the checks live: the service layer, not `@PreAuthorize` and not the gateway.**
+`GET /issues/{id}` has to load the issue before anyone knows which project it belongs to, and
+therefore whether the caller was allowed to see it. `ProjectAccess` is the one component every such
+question goes through, in the same place and for the same reason as the status transition map.
+
+**ADMIN is a short-circuit, not a membership row in every project.** Rows would be a lie that needs
+maintaining, and would be wrong the moment somebody created a project.
+
+**The half that is easy to get wrong.** Filtering `GET /projects` is decoration on its own: the
+project vanishes from a list while `/issues/1`, `/issues/2` still answer. Every entry point that
+resolves to a project checks membership — boards, sprints, issues, comments, attachments,
+classifications and the dashboard. `smoke-test.sh` proves it by id with a valid token belonging to
+somebody else, which is the only way the claim means anything.
+
+---
+
+## 11. Registration stopped choosing its own role — **M5 · BUILT**
+
+`RegisterRequest` had a `role` field on an endpoint the gateway leaves open. In one sentence:
+**anyone on the internet could make themselves an administrator of this system.** The smoke test
+relied on it to bootstrap, which is how it survived three milestones unnoticed.
+
+The field is gone. Everybody registers as a `PENDING` `DEVELOPER`, cannot log in, and an
+administrator approves them and says what they are. Which leaves the obvious question, worth
+answering before it is asked:
+
+> **Where does the first administrator come from?** A migration seeds one, and it is the only row
+> in `account` that nobody approved. A chain of approvals has to start somewhere outside itself.
+
+`account.is_active` became `account.status` (PENDING / ACTIVE / DISABLED) in the same change: a
+boolean could say "may not log in" but not *why*, and "waiting for approval" and "switched off"
+need different sentences on the screen. Telling somebody who signed up ten seconds ago that their
+account is deactivated reads as a punishment for signing up.
+
+---
+
+## 12. The admin list is assembled in auth-service, to avoid a cycle — **M5 · BUILT**
+
+The administrator's screen needs a username and status (from `account`, in `authdb`) next to an
+email (from `app_user`, in `workflow`). Two services, one screen.
+
+It is built in **auth-service**, which calls work-service once and joins in memory.
+
+**Why that direction and not the other:** auth-service already calls work-service — registration
+creates the profile. Building the same list in work-service would make work-service call
+auth-service, and two services that call each other cannot be deployed or reasoned about
+separately. The dependency stays one-way.
+
+> Every cross-service call in this system points the same way: auth-service to work-service. There
+> is no path back, so there is no cycle to break.
+
+The cost is a second dual write: approval sets the status here and mirrors the role and active flag
+there. It can half-fail, and it is treated like registration's — logged loudly with the id, never
+swallowed. It is survivable in a specific way worth stating: the authoritative column is in
+auth-service, so the person can still log in with the right role. What goes stale is an assignee
+dropdown, which the next successful change repairs.
+
+---
+
 ## Deliberately not doing
 
 Say these as decisions if asked, not as gaps:

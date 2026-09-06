@@ -19,11 +19,27 @@ final class IssueSpecifications {
     private IssueSpecifications() {
     }
 
+    /**
+     * @param visibleProjectIds the projects the caller may read, or {@code null} for an
+     *                          administrator, who may read all of them. An <em>empty</em> list is
+     *                          not the same as null and must return nothing: it means a signed-in
+     *                          person who is on no project yet. Getting those two confused would
+     *                          turn "you have no projects" into "here is everything".
+     */
     static Specification<Issue> filter(Long projectId, Long boardId, Long sprintId, Status status,
-                                       Priority priority, Long assigneeId, String text) {
+                                       Priority priority, Long assigneeId, String text,
+                                       List<Long> visibleProjectIds) {
         return (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
 
+            if (visibleProjectIds != null) {
+                if (visibleProjectIds.isEmpty()) {
+                    // "project_id IN ()" is not valid SQL, and Hibernate's rendering of an empty
+                    // list has changed between versions. An explicit false is unambiguous.
+                    return cb.disjunction();
+                }
+                predicates.add(root.get("project").get("id").in(visibleProjectIds));
+            }
             if (projectId != null) {
                 predicates.add(cb.equal(root.get("project").get("id"), projectId));
             }

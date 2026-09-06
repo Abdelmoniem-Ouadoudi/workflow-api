@@ -3,6 +3,7 @@ package ma.dev.workflow.auth.token;
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import ma.dev.workflow.auth.account.dto.TokenResponse;
 import ma.dev.workflow.auth.account.models.Account;
+import ma.dev.workflow.auth.account.models.enums.AccountStatus;
 import ma.dev.workflow.auth.account.models.enums.Role;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -137,7 +138,7 @@ class JwtIssuerTest {
         account.setUsername(username);
         account.setWorkUserId(workUserId);
         account.setRole(role);
-        account.setActive(true);
+        account.setStatus(AccountStatus.ACTIVE);
         return account;
     }
 }

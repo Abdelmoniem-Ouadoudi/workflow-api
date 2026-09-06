@@ -1,49 +1,40 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { ApiError, api } from '../api/client'
-import type { Role } from '../api/types'
-import type { Session } from '../auth/session'
+import { useSession } from '../auth/SessionContext'
 import { Notice } from './Notice'
 import type { NoticeState } from './Notice'
 
 interface Props {
-  onSignedIn: (session: Session) => void
+  /** Set by the route: /login or /register. */
+  mode: 'signIn' | 'createAccount'
 }
 
-type Mode = 'signIn' | 'createAccount'
-
-/** Same three the backend accepts. Shown in the order of how much they can do. */
-const ROLES: Role[] = ['DEVELOPER', 'MANAGER', 'ADMIN']
-
-const ROLE_LABEL: Record<Role, string> = {
-  DEVELOPER: 'Developer',
-  MANAGER: 'Manager',
-  ADMIN: 'Admin',
+interface LocationState {
+  from?: { pathname: string }
 }
 
 /**
- * One screen, two modes. Signing in and creating an account share every field but two, and
- * splitting them across two screens would mean two layouts to keep in step for no gain.
+ * One component, two modes, now reached by two routes.
+ *
+ * The two modes differ by one field and one button, so splitting them into two files would mean
+ * two layouts to keep in step. What changed at M5 is what each one *does*: signing in starts a
+ * session, creating an account does not — it produces a request for an administrator.
  */
-export function SignIn({ onSignedIn }: Props) {
-  const [mode, setMode] = useState<Mode>('signIn')
+export function SignIn({ mode }: Props) {
   const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [role, setRole] = useState<Role>('DEVELOPER')
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [notice, setNotice] = useState<NoticeState | null>(null)
   const [busy, setBusy] = useState(false)
 
-  const creating = mode === 'createAccount'
+  const { signIn } = useSession()
+  const navigate = useNavigate()
+  const location = useLocation()
 
-  function switchTo(next: Mode) {
-    setMode(next)
-    // The messages belonged to the other mode. Leaving them would have the form complain
-    // about a field it is no longer showing.
-    setErrors({})
-    setNotice(null)
-  }
+  const creating = mode === 'createAccount'
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
@@ -52,12 +43,28 @@ export function SignIn({ onSignedIn }: Props) {
     setBusy(true)
 
     try {
-      const session = creating
-        ? await api.register({ username, email, password, role })
-        : await api.login({ username, password })
-      onSignedIn(session)
+      if (creating) {
+        // No session, no token, nowhere to go but a page that explains why.
+        await api.register({ username, email, password })
+        navigate('/pending', { replace: true, state: { username } })
+        return
+      }
+
+      signIn(await api.login({ username, password }))
+      // Back to whatever they were trying to reach before the guard bounced them here — a mailed
+      // /join/CODE link, most usefully. Falls back to the project list on a plain sign-in.
+      const from = (location.state as LocationState | null)?.from?.pathname
+      navigate(from ?? '/projects', { replace: true })
     } catch (error) {
       if (!(error instanceof ApiError)) return
+
+      // A PENDING account is not a failed sign-in, it is a sign-in that is too early. Sending it
+      // to the waiting page says so properly instead of showing a red banner over the password
+      // field, which reads as "you typed it wrong".
+      if (error.code === 'ACCOUNT_PENDING') {
+        navigate('/pending', { replace: true, state: { username } })
+        return
+      }
       if (error.fieldErrors.length > 0) {
         setErrors(Object.fromEntries(error.fieldErrors.map((e) => [e.field, e.message])))
       } else {
@@ -78,31 +85,29 @@ export function SignIn({ onSignedIn }: Props) {
           <h1 className="gate__title">Workflow</h1>
           <p className="gate__sub">
             {creating
-              ? 'Create an account to start tracking work.'
+              ? 'Create an account. An administrator approves it before you can sign in.'
               : 'Sign in to reach your projects.'}
           </p>
           <div className="masthead__rail" aria-hidden="true" />
         </header>
 
         <div className="gate__modes" role="tablist" aria-label="Access mode">
-          <button
-            type="button"
+          <Link
+            to="/login"
             role="tab"
             aria-selected={!creating}
             className={`gate__mode${!creating ? ' gate__mode--on' : ''}`}
-            onClick={() => switchTo('signIn')}
           >
             Sign in
-          </button>
-          <button
-            type="button"
+          </Link>
+          <Link
+            to="/register"
             role="tab"
             aria-selected={creating}
             className={`gate__mode${creating ? ' gate__mode--on' : ''}`}
-            onClick={() => switchTo('createAccount')}
           >
             Create account
-          </button>
+          </Link>
         </div>
 
         <form className="gate__form" onSubmit={handleSubmit}>
@@ -158,26 +163,16 @@ export function SignIn({ onSignedIn }: Props) {
             )}
           </div>
 
+          {/*
+            There was a role dropdown here until M5, on a page anybody can open, which meant
+            anyone could make themselves an administrator. Everybody now registers the same way
+            and an administrator decides what they are.
+          */}
           {creating && (
-            <div className="compose__field">
-              <label className="gate__label" htmlFor="role">
-                Role
-              </label>
-              <select
-                id="role"
-                className="compose__select gate__select"
-                value={role}
-                onChange={(event) => setRole(event.target.value as Role)}
-              >
-                {ROLES.map((value) => (
-                  <option key={value} value={value}>
-                    {ROLE_LABEL[value]}
-                  </option>
-                ))}
-              </select>
-              {/* Stated rather than discovered: the one rule the role currently decides. */}
-              <span className="gate__hint">Only an admin can deactivate a user.</span>
-            </div>
+            <p className="gate__hint">
+              An administrator reviews new accounts and decides what you can do. You will not be
+              able to sign in until they have.
+            </p>
           )}
 
           <button className="button gate__submit" type="submit" disabled={busy}>

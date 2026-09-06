@@ -5,6 +5,7 @@ import ma.dev.workflow.board.models.Board;
 import ma.dev.workflow.board.repositories.BoardRepository;
 import ma.dev.workflow.common.exception.BusinessRuleException;
 import ma.dev.workflow.common.security.CurrentUser;
+import ma.dev.workflow.common.security.ProjectAccess;
 import ma.dev.workflow.issue.dto.IssueDTO;
 import ma.dev.workflow.issue.dto.IssueStatusUpdateDTO;
 import ma.dev.workflow.issue.dto.mapper.IssueMapper;
@@ -16,6 +17,7 @@ import ma.dev.workflow.issue.models.enums.Status;
 import ma.dev.workflow.issue.repositories.IssueRepository;
 import ma.dev.workflow.issue.service.IIssueService;
 import ma.dev.workflow.project.models.Project;
+import ma.dev.workflow.project.repositories.ProjectMemberRepository;
 import ma.dev.workflow.project.repositories.ProjectRepository;
 import ma.dev.workflow.sprint.models.Sprint;
 import ma.dev.workflow.sprint.models.enums.SprintState;
@@ -50,8 +52,10 @@ public class IssueService implements IIssueService {
     private final BoardRepository boardRepository;
     private final SprintRepository sprintRepository;
     private final UserRepository userRepository;
+    private final ProjectMemberRepository memberRepository;
     private final IssueMapper issueMapper;
     private final CurrentUser currentUser;
+    private final ProjectAccess projectAccess;
     private final ApplicationEventPublisher events;
 
     public IssueService(IssueRepository issueRepository,
@@ -59,34 +63,51 @@ public class IssueService implements IIssueService {
                         BoardRepository boardRepository,
                         SprintRepository sprintRepository,
                         UserRepository userRepository,
+                        ProjectMemberRepository memberRepository,
                         IssueMapper issueMapper,
                         CurrentUser currentUser,
+                        ProjectAccess projectAccess,
                         ApplicationEventPublisher events) {
         this.issueRepository = issueRepository;
         this.projectRepository = projectRepository;
         this.boardRepository = boardRepository;
         this.sprintRepository = sprintRepository;
         this.userRepository = userRepository;
+        this.memberRepository = memberRepository;
         this.issueMapper = issueMapper;
         this.currentUser = currentUser;
+        this.projectAccess = projectAccess;
         this.events = events;
     }
 
+    /**
+     * The filter the caller asked for, narrowed to the projects they are on.
+     *
+     * <p>Narrowed rather than validated: passing {@code projectId} for somebody else's project
+     * returns nothing instead of 403. A search is allowed to come back empty, and answering "you
+     * are not allowed" would confirm that the project exists to anybody willing to count ids.
+     */
     @Override
     public List<IssueDTO> search(Long projectId, Long boardId, Long sprintId, Status status,
                                  Priority priority, Long assigneeId, String text) {
+        List<Long> visible = projectAccess.isAdmin() ? null : projectAccess.myProjectIds();
         return issueMapper.fromModelList(issueRepository.findAll(
-                IssueSpecifications.filter(projectId, boardId, sprintId, status, priority, assigneeId, text)));
+                IssueSpecifications.filter(projectId, boardId, sprintId, status, priority,
+                        assigneeId, text, visible)));
     }
 
     @Override
     public IssueDTO findById(Long id) {
-        return issueMapper.fromModel(getOrThrow(id));
+        return issueMapper.fromModel(getVisibleOrThrow(id));
     }
 
     @Override
     @Transactional
     public IssueDTO create(IssueDTO dto) {
+        // Before the row lock, not after: no point serialising creations into a project the caller
+        // is not on. You cannot file a ticket in somebody else's project.
+        projectAccess.requireMember(dto.getProjectId());
+
         // Locks the project row for the rest of this transaction so the counter cannot be
         // read twice with the same value by two concurrent creations.
         Project project = projectRepository.findByIdForUpdate(dto.getProjectId())
@@ -101,7 +122,7 @@ public class IssueService implements IIssueService {
         issue.setReporter(requireUser(currentUser.requireId(), "REPORTER_NOT_FOUND"));
 
         if (dto.getAssigneeId() != null) {
-            issue.setAssignee(requireUser(dto.getAssigneeId(), "ASSIGNEE_NOT_FOUND"));
+            issue.setAssignee(requireAssignee(dto.getAssigneeId(), project.getId()));
         }
         if (dto.getBoardId() != null) {
             issue.setBoard(requireBoardInProject(dto.getBoardId(), project.getId()));
@@ -130,7 +151,7 @@ public class IssueService implements IIssueService {
     @Override
     @Transactional
     public IssueDTO update(Long id, IssueDTO dto) {
-        Issue issue = getOrThrow(id);
+        Issue issue = getVisibleOrThrow(id);
 
         issue.setTitle(dto.getTitle());
         issue.setDescription(dto.getDescription());
@@ -147,7 +168,7 @@ public class IssueService implements IIssueService {
                 : requireSprintOnBoard(dto.getSprintId(), dto.getBoardId()));
         issue.setAssignee(dto.getAssigneeId() == null
                 ? null
-                : requireUser(dto.getAssigneeId(), "ASSIGNEE_NOT_FOUND"));
+                : requireAssignee(dto.getAssigneeId(), issue.getProject().getId()));
 
         return issueMapper.fromModel(issueRepository.saveAndFlush(issue));
     }
@@ -155,7 +176,7 @@ public class IssueService implements IIssueService {
     @Override
     @Transactional
     public IssueDTO updateStatus(Long id, IssueStatusUpdateDTO dto) {
-        Issue issue = getOrThrow(id);
+        Issue issue = getVisibleOrThrow(id);
         requireCurrentVersion(issue, dto.getVersion());
 
         Status current = issue.getStatus();
@@ -176,15 +197,17 @@ public class IssueService implements IIssueService {
     @Override
     @Transactional
     public IssueDTO assign(Long id, Long userId) {
-        Issue issue = getOrThrow(id);
-        issue.setAssignee(userId == null ? null : requireUser(userId, "ASSIGNEE_NOT_FOUND"));
+        Issue issue = getVisibleOrThrow(id);
+        issue.setAssignee(userId == null
+                ? null
+                : requireAssignee(userId, issue.getProject().getId()));
         return issueMapper.fromModel(issueRepository.saveAndFlush(issue));
     }
 
     @Override
     @Transactional
     public void deleteById(Long id) {
-        Issue issue = getOrThrow(id);
+        Issue issue = getVisibleOrThrow(id);
         issueRepository.delete(issue);
 
         // The classification row goes with it through ON DELETE CASCADE. The vector does not: it
@@ -223,6 +246,19 @@ public class IssueService implements IIssueService {
                 .orElseThrow(() -> new EntityNotFoundException("Issue not found: " + id));
     }
 
+    /**
+     * Load the issue, then check the caller is on the project it belongs to.
+     *
+     * <p>This is the check that makes the whole feature real rather than cosmetic. Filtering
+     * {@code GET /projects} hides a project from a list; without this, its issues are still there
+     * for anyone who tries {@code /issues/1}, {@code /issues/2}, and so on.
+     */
+    private Issue getVisibleOrThrow(Long id) {
+        Issue issue = getOrThrow(id);
+        projectAccess.requireMember(issue.getProject().getId());
+        return issue;
+    }
+
     private void requireCurrentVersion(Issue issue, Long clientVersion) {
         if (clientVersion != null && !clientVersion.equals(issue.getVersion())) {
             throw new OptimisticLockingFailureException(
@@ -233,6 +269,22 @@ public class IssueService implements IIssueService {
     private User requireUser(Long userId, String code) {
         return userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessRuleException(code, "User not found: " + userId));
+    }
+
+    /**
+     * Work is only given to somebody who is on the project.
+     *
+     * <p>Otherwise the scoping has a hole in the shape of a person: assign a ticket to a stranger
+     * and it appears on a board they cannot open, in a project they cannot see, and nobody is
+     * told. 422 rather than 403 — the caller is allowed to assign, the value they chose is wrong.
+     */
+    private User requireAssignee(Long userId, Long projectId) {
+        User user = requireUser(userId, "ASSIGNEE_NOT_FOUND");
+        if (!memberRepository.existsByProjectIdAndUserId(projectId, userId)) {
+            throw new BusinessRuleException("ASSIGNEE_NOT_A_MEMBER",
+                    "That person is not a member of this project.");
+        }
+        return user;
     }
 
     /** The schema cannot express this, so the service must: a board only holds its own project's issues. */

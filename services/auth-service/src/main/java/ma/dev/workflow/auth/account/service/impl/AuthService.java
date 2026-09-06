@@ -2,8 +2,11 @@ package ma.dev.workflow.auth.account.service.impl;
 
 import ma.dev.workflow.auth.account.dto.LoginRequest;
 import ma.dev.workflow.auth.account.dto.RegisterRequest;
+import ma.dev.workflow.auth.account.dto.RegistrationReceipt;
 import ma.dev.workflow.auth.account.dto.TokenResponse;
 import ma.dev.workflow.auth.account.models.Account;
+import ma.dev.workflow.auth.account.models.enums.AccountStatus;
+import ma.dev.workflow.auth.account.models.enums.Role;
 import ma.dev.workflow.auth.account.repositories.AccountRepository;
 import ma.dev.workflow.auth.account.service.IAuthService;
 import ma.dev.workflow.auth.client.WorkServiceClient;
@@ -55,7 +58,7 @@ public class AuthService implements IAuthService {
      * than papered over — the failed call is logged loudly enough to find the orphan.
      */
     @Override
-    public TokenResponse register(RegisterRequest request) {
+    public RegistrationReceipt register(RegisterRequest request) {
         // 1. Cheap local check first, so a duplicate never causes a pointless call to work-service.
         if (accountRepository.existsByUsername(request.username())) {
             throw new BusinessRuleException("USERNAME_TAKEN",
@@ -63,15 +66,21 @@ public class AuthService implements IAuthService {
         }
 
         // 2. The remote write. If this throws, nothing has been created anywhere.
-        Long workUserId = workServiceClient.createUser(request.username(), request.email(), request.role());
+        //
+        // Always DEVELOPER, and always inactive. The role is not the registrant's to choose - it
+        // used to be, on an open endpoint, which made "register yourself as an administrator" a
+        // one-line request. And the profile starts inactive so that somebody nobody has approved
+        // cannot be picked out of an assignee dropdown and handed work.
+        Long workUserId = workServiceClient.createUser(
+                request.username(), request.email(), Role.DEVELOPER, false);
 
         // 3. The local write. If this throws, the profile from step 2 is orphaned.
         Account account = new Account();
         account.setUsername(request.username());
         account.setPasswordHash(passwordEncoder.encode(request.password()));
-        account.setRole(request.role());
+        account.setRole(Role.DEVELOPER);
         account.setWorkUserId(workUserId);
-        account.setActive(true);
+        account.setStatus(AccountStatus.PENDING);
 
         try {
             account = accountRepository.save(account);
@@ -82,8 +91,11 @@ public class AuthService implements IAuthService {
             throw ex;
         }
 
-        // 4. Registering signs you in. Asking for the password twice in a row would be theatre.
-        return jwtIssuer.issueForUser(account);
+        // 4. No token. Registering no longer signs you in, because it no longer lets you in:
+        // an administrator has to approve the account first, and handing out a key to a locked
+        // door would only move the confusion to the first screen that came back empty.
+        return new RegistrationReceipt(account.getUsername(), account.getStatus(),
+                "Your account was created and is waiting for an administrator to approve it.");
     }
 
     /**

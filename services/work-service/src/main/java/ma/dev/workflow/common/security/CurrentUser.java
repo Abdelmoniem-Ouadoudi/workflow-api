@@ -1,9 +1,13 @@
 package ma.dev.workflow.common.security;
 
 import ma.dev.workflow.common.exception.BusinessRuleException;
+import ma.dev.workflow.user.models.enums.Role;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Component;
+
+import java.util.Arrays;
+import java.util.Optional;
 
 /**
  * Answers "who is making this request" from the verified token, never from the request body.
@@ -33,6 +37,26 @@ public class CurrentUser {
                     "This action must be performed by a signed-in user, not by a service.");
         }
         return userId.longValue();
+    }
+
+    /**
+     * The caller's global role, from the {@code role} claim.
+     *
+     * <p>Returns empty for a service token. {@code SERVICE} is a real value of that claim but not
+     * a value of {@link Role}, so parsing it would throw; a caller asking "is this person an
+     * admin" wants "no", not an exception.
+     */
+    public Optional<Role> role() {
+        String role = jwt().getClaimAsString(TokenClaims.ROLE);
+        if (role == null || TokenClaims.SERVICE_ROLE.equals(role)) {
+            return Optional.empty();
+        }
+        return Arrays.stream(Role.values()).filter(value -> value.name().equals(role)).findFirst();
+    }
+
+    /** True only for a signed-in person whose role is ADMIN. Never true for a service token. */
+    public boolean isAdmin() {
+        return role().filter(Role.ADMIN::equals).isPresent();
     }
 
     private Jwt jwt() {
