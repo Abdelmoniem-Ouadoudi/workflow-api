@@ -13,6 +13,7 @@ import type {
   Issue,
   IssueAssignment,
   IssueComment,
+  IssueStatusChange,
   IssueType,
   JoinRequest,
   Priority,
@@ -341,6 +342,12 @@ export const api = {
     request<AIClassification>(`/issues/${issueId}/classification/override`, { method: 'POST' }),
 
   listComments: (issueId: number) => request<IssueComment[]>(`/issues/${issueId}/comments`),
+
+  /**
+   * Every move this card has made, oldest first. Read-only: the rows are written by the move
+   * itself, so there is no post, edit or delete to call here.
+   */
+  listHistory: (issueId: number) => request<IssueStatusChange[]>(`/issues/${issueId}/history`),
 
   /** No author is sent: the server reads it from the token. */
   createComment: (issueId: number, content: string) =>

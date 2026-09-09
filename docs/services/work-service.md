@@ -18,6 +18,7 @@ erDiagram
     SPRINT   ||--o{ ISSUE   : "holds (optional)"
     APP_USER ||--o{ ISSUE   : reports
     ISSUE    ||--o{ ISSUE_COMMENT    : has
+    ISSUE    ||--o{ ISSUE_STATUS_CHANGE : "remembers being moved"
     ISSUE    ||--o{ ISSUE_ATTACHMENT : has
     ISSUE    ||--o| AI_CLASSIFICATION : "is judged by"
 ```
@@ -35,6 +36,7 @@ An issue can sit in the **backlog** with no sprint. That is why the link from sp
 | `/sprints` | plus `/{id}/start` and `/{id}/complete` |
 | `/issues` | plus `/{id}/status`, `/{id}/assignee` |
 | `/issues/{id}/comments`, `/issues/{id}/attachments` | nested under their issue |
+| `/issues/{id}/history` | every move of the card, oldest first. **GET only** — the rows are written by the move itself |
 | `/issues/{id}/classification` | read the AI suggestion, `/accept` it, `/override` it |
 | `/projects/{id}/members` | who is on it · add · change their project role · remove |
 | `/projects/{id}/join-code` | the secret to mail somebody, plus `/rotate`. **Project manager only.** |
@@ -121,6 +123,44 @@ stateDiagram-v2
 Note what is **missing**: `TO_DO → DONE`. Work cannot be finished without having been started.
 A `CHECK` constraint cannot express this, because the rule depends on the *previous* value. It
 lives in Java, and `IssueStatusTransitionTest` is what proves it.
+
+---
+
+## Every move is written down
+
+The board answers "where is this card"; it cannot answer "how did it get here". An update
+overwrites `issue.status`, and the previous value is gone — so each accepted move also writes a
+row into `issue_status_change`: from, to, who, when.
+
+```mermaid
+sequenceDiagram
+    participant B as Board (drag)
+    participant S as IssueService
+    participant DB as workflow
+    B->>S: PATCH /issues/12/status {IN_PROGRESS, version}
+    S->>S: version current? transition allowed?
+    S->>DB: update issue (status, version+1)
+    S->>DB: insert issue_status_change (TO_DO -> IN_PROGRESS, user 7)
+    Note over S,DB: one transaction - both, or neither
+    S-->>B: 200 the updated issue
+```
+
+**Three decisions worth stating out loud:**
+
+- **Same transaction as the move, not a listener.** A history written afterwards can fail on its
+  own, and then the board shows a state nothing accounts for. Here a move that is not recorded is
+  a move that did not happen.
+- **Only real moves are recorded.** A refused transition throws before the write; a drop back on
+  the same column returns early. Neither leaves a row, so a fumbled drag does not fill the history
+  with moves nobody made.
+- **The mover comes from the token**, exactly like the reporter of an issue and the author of a
+  comment. It is never read from the request body, so nobody can file a move under another name.
+
+Read it at `GET /issues/{id}/history`, oldest first. That is the only verb: a `POST` would let a
+caller invent a move, a `DELETE` would let them erase one, so neither exists — and asking for one
+now answers **405** with an `Allow` header rather than a 500. The row carries
+`changedByUsername` as well as the id, because whoever moved the card may since have left the
+project and "user 7" is not an answer.
 
 ---
 

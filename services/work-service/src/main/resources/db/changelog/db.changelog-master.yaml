@@ -29,3 +29,5 @@ databaseChangeLog:
       file: db/changelog/changes/m5/5.0.2-add-join-code-to-project.yml
   - include:
       file: db/changelog/changes/m5/5.0.5-create-project-join-request-table.yml
+  - include:
+      file: db/changelog/changes/m5/5.0.6-create-issue-status-change-table.yml

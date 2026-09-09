@@ -119,6 +119,23 @@ export interface IssueComment {
   updatedAt: string
 }
 
+/**
+ * One move of a card, as the server recorded it.
+ *
+ * `changedByUsername` comes on the row rather than being looked up in the members list, because
+ * a move outlives the person's membership: whoever dragged the card may since have left the
+ * project, and the history still has to name them.
+ */
+export interface IssueStatusChange {
+  id: number
+  issueId: number
+  fromStatus: Status
+  toStatus: Status
+  changedById: number
+  changedByUsername: string
+  changedAt: string
+}
+
 export type Effort = 'SMALL' | 'MEDIUM' | 'LARGE'
 export type ReviewStatus = 'PENDING' | 'AUTO_APPLIED' | 'CONFIRMED' | 'OVERRIDDEN'
 

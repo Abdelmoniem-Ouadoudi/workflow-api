@@ -16,6 +16,8 @@ import ma.dev.workflow.issue.models.enums.Priority;
 import ma.dev.workflow.issue.models.enums.Status;
 import ma.dev.workflow.issue.repositories.IssueRepository;
 import ma.dev.workflow.issue.service.IIssueService;
+import ma.dev.workflow.issue_status_change.models.IssueStatusChange;
+import ma.dev.workflow.issue_status_change.repositories.IssueStatusChangeRepository;
 import ma.dev.workflow.project.models.Project;
 import ma.dev.workflow.project.repositories.ProjectMemberRepository;
 import ma.dev.workflow.project.repositories.ProjectRepository;
@@ -48,6 +50,7 @@ public class IssueService implements IIssueService {
             Status.DONE, EnumSet.of(Status.IN_PROGRESS));
 
     private final IssueRepository issueRepository;
+    private final IssueStatusChangeRepository historyRepository;
     private final ProjectRepository projectRepository;
     private final BoardRepository boardRepository;
     private final SprintRepository sprintRepository;
@@ -59,6 +62,7 @@ public class IssueService implements IIssueService {
     private final ApplicationEventPublisher events;
 
     public IssueService(IssueRepository issueRepository,
+                        IssueStatusChangeRepository historyRepository,
                         ProjectRepository projectRepository,
                         BoardRepository boardRepository,
                         SprintRepository sprintRepository,
@@ -69,6 +73,7 @@ public class IssueService implements IIssueService {
                         ProjectAccess projectAccess,
                         ApplicationEventPublisher events) {
         this.issueRepository = issueRepository;
+        this.historyRepository = historyRepository;
         this.projectRepository = projectRepository;
         this.boardRepository = boardRepository;
         this.sprintRepository = sprintRepository;
@@ -191,7 +196,22 @@ public class IssueService implements IIssueService {
         }
 
         issue.setStatus(target);
-        return issueMapper.fromModel(issueRepository.saveAndFlush(issue));
+        Issue saved = issueRepository.saveAndFlush(issue);
+
+        // The move and its record are one transaction. The issue row keeps only the status it is
+        // in now, so if this write were allowed to fail on its own the board would show a state
+        // nobody can account for. Written here rather than in a listener for the same reason:
+        // the history must not be able to disagree with the card.
+        IssueStatusChange change = new IssueStatusChange();
+        change.setIssue(saved);
+        change.setFromStatus(current);
+        change.setToStatus(target);
+        // Who moved it is read from the token, never from the body - exactly as the reporter of
+        // an issue and the author of a comment are.
+        change.setChangedBy(requireUser(currentUser.requireId(), "ACTOR_NOT_FOUND"));
+        historyRepository.save(change);
+
+        return issueMapper.fromModel(saved);
     }
 
     @Override

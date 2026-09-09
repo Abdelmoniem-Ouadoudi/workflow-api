@@ -78,6 +78,15 @@ classDiagram
         +edit(newContent) void
     }
 
+    %% One accepted move of one card. No methods and no setters on purpose: it is written once,
+    %% by Issue.updateStatus, and only read after that.
+    class StatusChange {
+        -id: int
+        -fromStatus: Status
+        -toStatus: Status
+        -changedAt: Date
+    }
+
     class Attachment {
         -id: int
         -fileName: String
@@ -202,6 +211,8 @@ classDiagram
     User "1" -- "0..*" Issue : reporter
     User "1" -- "0..*" Comment : writes
     Issue "1" *-- "0..*" Comment : has
+    User "1" -- "0..*" StatusChange : moves
+    Issue "1" *-- "0..*" StatusChange : remembers
     Issue "1" *-- "0..*" Attachment : has
 
     %% ===== AI layer relationships =====

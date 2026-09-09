@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { ApiError, api } from '../api/client'
-import type { IssueComment, IssueSummary, Status, User } from '../api/types'
+import type { IssueComment, IssueStatusChange, IssueSummary, Status, User } from '../api/types'
 import { STATUS_LABEL } from '../api/types'
 import type { Session } from '../auth/session'
 import { SuggestionChip } from './SuggestionChip'
@@ -39,6 +39,7 @@ export function IssueDetail({
   onIssueChanged,
 }: Props) {
   const [comments, setComments] = useState<IssueComment[] | null>(null)
+  const [history, setHistory] = useState<IssueStatusChange[] | null>(null)
   const [draft, setDraft] = useState('')
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editDraft, setEditDraft] = useState('')
@@ -46,13 +47,24 @@ export function IssueDetail({
   const [error, setError] = useState<string | null>(null)
   const confirmTimer = useRef<number | undefined>(undefined)
 
+  // Both lists are the same request pattern against the same issue, so they load together and
+  // the drawer is drawn once. The status the header shows is the end of the history below it.
   useEffect(() => {
     let cancelled = false
     setComments(null)
+    setHistory(null)
     api
       .listComments(issue.id)
       .then((list) => {
         if (!cancelled) setComments(list)
+      })
+      .catch((err) => {
+        if (!cancelled && err instanceof ApiError) setError(err.message)
+      })
+    api
+      .listHistory(issue.id)
+      .then((list) => {
+        if (!cancelled) setHistory(list)
       })
       .catch((err) => {
         if (!cancelled && err instanceof ApiError) setError(err.message)
@@ -260,6 +272,43 @@ export function IssueDetail({
               </button>
             </div>
           </form>
+        </div>
+
+        {/* Under the discussion, because it answers the question the discussion raises: not what
+            people said about the card, but what actually happened to it. Read-only — there is
+            nothing to edit, and the API offers no way to. */}
+        <div className="drawer__section">
+          <h3 className="drawer__label">History</h3>
+
+          {history === null && <p className="drawer__loading">Loading…</p>}
+
+          {history !== null && history.length === 0 && (
+            <p className="drawer__loading">Nobody has moved this card yet.</p>
+          )}
+
+          <ol className="history">
+            {history?.map((move) => (
+              <li className="history__row" key={move.id}>
+                <span className="history__move">
+                  <span className="history__status">{STATUS_LABEL[move.fromStatus]}</span>
+                  <span className="history__arrow" aria-hidden="true">
+                    →
+                  </span>
+                  <span className="history__status history__status--to">
+                    {STATUS_LABEL[move.toStatus]}
+                  </span>
+                </span>
+                <span className="history__who">
+                  {/* The name is on the row, not looked up in `users`: whoever moved the card
+                      may have left the project since, and "user 7" is not an answer. */}
+                  by <strong>{move.changedByUsername}</strong>
+                </span>
+                <span className="history__time">
+                  {timeFormatter.format(new Date(move.changedAt))}
+                </span>
+              </li>
+            ))}
+          </ol>
         </div>
       </aside>
     </div>

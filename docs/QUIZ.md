@@ -1237,3 +1237,35 @@ first runtime dependency added to the frontend since the project began.
 The guards decide what is **rendered**, never what is **allowed** — every rule is enforced again in
 work-service and auth-service, which is the only place it counts. A guard is one localStorage edit
 away from being bypassed; a service is not.
+
+## Why moving a card writes a second row
+
+`issue.status` holds one value: where the card is now. An update overwrites it, and nothing
+anywhere keeps what it was — so "who moved this to DONE, and when" is unanswerable from the issue
+table no matter how it is queried. `issue_status_change` is that answer, written by the move
+itself.
+
+It is written **in the same transaction** as the status update, in `IssueService.updateStatus`,
+not in an event listener. A listener could fail on its own, and then the board would show a state
+nothing accounts for. Sharing the transaction makes the two facts inseparable: a move that was not
+recorded never happened at all.
+
+Only accepted moves leave a row. An illegal transition throws before the write; dropping a card
+back on the column it came from returns early with no write and no version bump. So a fumbled drag
+adds nothing — the history is what happened, not what was attempted.
+
+## Why the history row stores the username and not just the user id
+
+Comments store `author_id` and the browser resolves the name against the project's member list.
+That works for as long as the author is still on the project. A history row has to outlive that:
+the person who moved a card last March may have left, and the honest answer to "who moved it" is
+still their name, not `user 7`. The row carries `changed_by_id` **and** `changed_by_username`, and
+the foreign key is RESTRICT so deleting an account cannot quietly rewrite the board's past.
+
+## Why POST /issues/{id}/history returns 405 and not 500
+
+The endpoint is GET-only by design — a POST would let a caller record a move that never happened.
+But Spring's `HttpRequestMethodNotSupportedException` was falling through to the catch-all handler
+and coming back as a 500, which claims the server broke when the truth is the caller asked for
+something that does not exist. It now maps to 405 with an `Allow` header naming the verbs that do.
+Found by the smoke test, which asserts the code and not merely that the call failed.

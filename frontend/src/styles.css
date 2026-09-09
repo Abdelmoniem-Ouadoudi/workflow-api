@@ -923,6 +923,61 @@ a.projects__row {
   gap: var(--step);
 }
 
+/* --- history -------------------------------------------------------------
+   The card's own record, under the discussion. Quieter than a comment on
+   purpose: nobody wrote these lines, the board did, so they read as a log
+   and never compete with what people actually said.
+   ------------------------------------------------------------------------- */
+
+.history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.history__row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px var(--step);
+  padding: calc(var(--step) * 0.75) 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.history__move {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.history__status {
+  color: var(--ink-soft);
+}
+
+/* Where the card ended up is the part being read; where it came from is context. */
+.history__status--to {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.history__arrow {
+  color: var(--ink-soft);
+}
+
+.history__who {
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.history__time {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
 /* --- gate (sign in) ------------------------------------------------------
    The way onto the network. Same ground, same rail, same type as the board:
    this is the first screen anyone sees, so it has to read as the same system.

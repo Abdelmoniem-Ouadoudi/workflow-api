@@ -41,6 +41,8 @@ erDiagram
     APP_USER  |o--o{ ISSUE            : "is assigned"
     APP_USER  ||--o{ ISSUE_COMMENT    : "writes"
     ISSUE     ||--o{ ISSUE_COMMENT    : "has"
+    ISSUE     ||--o{ ISSUE_STATUS_CHANGE : "records"
+    APP_USER  ||--o{ ISSUE_STATUS_CHANGE : "moves"
     ISSUE     ||--o{ ISSUE_ATTACHMENT : "has"
     ISSUE     ||--o| AI_CLASSIFICATION : "is assessed by"
 ```
@@ -62,6 +64,8 @@ Read the symbols as: `||` exactly one, `|o` zero or one, `o{` zero or more.
 | `issue` | `assignee_id` | `app_user` | **SET NULL** | the work stays, it becomes unassigned |
 | `issue_comment` | `issue_id` | `issue` | **CASCADE** | comments die with the issue |
 | `issue_comment` | `author_id` | `app_user` | **RESTRICT** | the author cannot be deleted |
+| `issue_status_change` | `issue_id` | `issue` | **CASCADE** | the history of a deleted issue describes nothing |
+| `issue_status_change` | `changed_by_id` | `app_user` | **RESTRICT** | deleting a person must not rewrite the board's past |
 | `issue_attachment` | `issue_id` | `issue` | **CASCADE** | attachments die with the issue |
 | `project_member` | `project_id` | `project` | **CASCADE** | membership of a deleted project means nothing |
 | `project_member` | `user_id` | `app_user` | **RESTRICT** | consistent with every other link to a person |
@@ -361,6 +365,45 @@ Index: `idx_issue_comment_issue (issue_id)`.
 - many comments → one **app_user** as author (required, blocks their deletion)
 
 Only `content` is updatable. The author and the issue are fixed once written.
+
+---
+
+# issue_status_change
+
+Who moved which card, from where to where, and when. Added after M5, when the board gained a
+history panel.
+
+| Column | Type | Null | Note |
+|---|---|---|---|
+| `id` | bigint | no | primary key |
+| `issue_id` | bigint | **no** | → `issue`, CASCADE |
+| `from_status` | varchar(20) | **no** | the status the card left |
+| `to_status` | varchar(20) | **no** | the status it landed in |
+| `changed_by_id` | bigint | **no** | → `app_user`, RESTRICT |
+| `changed_at` | timestamp | no | |
+
+Index: `idx_issue_status_change_issue (issue_id, changed_at)` — both columns, because the only
+query is one issue's history in order, and an index on `issue_id` alone still leaves a sort.
+
+**Relationships**
+
+- many changes → one **issue** (required, dies with it)
+- many changes → one **app_user** who made the move (required, blocks their deletion)
+
+**This table exists because `issue.status` cannot answer the question.** An update overwrites the
+previous value; nothing anywhere keeps it. Without these rows the board has only a present tense.
+
+**Nothing here is updatable, and there is no `updated_at`.** A record of what happened that can be
+edited afterwards records nothing. Rows are written by `IssueService.updateStatus`, in the same
+transaction as the move, and the API exposes `GET /issues/{id}/history` and nothing else — no
+POST to invent a move, no DELETE to erase one.
+
+**Both statuses are stored, not just the destination.** Keeping only `to_status` would make the
+history readable in sequence alone, and unreadable at all if one row were ever missing.
+
+**`changed_by_id` is RESTRICT, like every other link to a person.** CASCADE here would let
+deleting an account quietly rewrite the board's past — which is why `app_user` deactivates
+instead of deleting.
 
 ---
 

@@ -1,0 +1,75 @@
+databaseChangeLog:
+  - changeSet:
+      id: 5.0.6
+      author: abdelmoniem
+      changes:
+        # Who moved which card, from where to where, and when. The issue row holds only the
+        # status it is in now, so without this table the board's whole past is unrecoverable:
+        # an update overwrites the previous value and nothing keeps it.
+        - createTable:
+            tableName: issue_status_change
+            columns:
+              - column:
+                  name: id
+                  type: bigint
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: issue_id
+                  type: bigint
+                  constraints:
+                    nullable: false
+              # Both sides are stored. Keeping only the destination would make the history
+              # readable exclusively in order, and unreadable at all if one row were ever lost.
+              - column:
+                  name: from_status
+                  type: varchar(20)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: to_status
+                  type: varchar(20)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: changed_by_id
+                  type: bigint
+                  constraints:
+                    nullable: false
+              - column:
+                  name: changed_at
+                  type: timestamp
+                  constraints:
+                    nullable: false
+
+        # Composition, like comments: the history of a deleted issue has nothing to describe.
+        - addForeignKeyConstraint:
+            constraintName: fk_issue_status_change_issue
+            baseTableName: issue_status_change
+            baseColumnNames: issue_id
+            referencedTableName: issue
+            referencedColumnNames: id
+            onDelete: CASCADE
+
+        # RESTRICT, not CASCADE: deleting a person must not quietly rewrite what happened on
+        # the board. An audit trail that can lose rows is not one.
+        - addForeignKeyConstraint:
+            constraintName: fk_issue_status_change_user
+            baseTableName: issue_status_change
+            baseColumnNames: changed_by_id
+            referencedTableName: app_user
+            referencedColumnNames: id
+            onDelete: RESTRICT
+
+        # The only query there is: one issue's history, oldest first. Both columns, because
+        # the sort is part of the question and an index on issue_id alone still sorts after.
+        - createIndex:
+            indexName: idx_issue_status_change_issue
+            tableName: issue_status_change
+            columns:
+              - column:
+                  name: issue_id
+              - column:
+                  name: changed_at

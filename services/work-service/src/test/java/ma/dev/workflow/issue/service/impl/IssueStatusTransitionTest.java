@@ -10,11 +10,16 @@ import ma.dev.workflow.issue.dto.mapper.IssueMapper;
 import ma.dev.workflow.issue.models.Issue;
 import ma.dev.workflow.issue.models.enums.Status;
 import ma.dev.workflow.issue.repositories.IssueRepository;
+import ma.dev.workflow.issue_status_change.models.IssueStatusChange;
+import ma.dev.workflow.issue_status_change.repositories.IssueStatusChangeRepository;
+import ma.dev.workflow.user.models.User;
+import ma.dev.workflow.user.repositories.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.mockito.ArgumentCaptor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.OptimisticLockingFailureException;
 
@@ -43,26 +48,40 @@ import static org.mockito.Mockito.when;
 class IssueStatusTransitionTest {
 
     private IssueRepository issueRepository;
+    private IssueStatusChangeRepository historyRepository;
     private IssueMapper issueMapper;
     private IssueService issueService;
 
     @BeforeEach
     void setUp() {
         issueRepository = mock(IssueRepository.class);
+        historyRepository = mock(IssueStatusChangeRepository.class);
         issueMapper = mock(IssueMapper.class);
 
-        // updateStatus touches only these two. The rest are mocked because the constructor asks
+        UserRepository userRepository = mock(UserRepository.class);
+        CurrentUser currentUser = mock(CurrentUser.class);
+
+        // Whoever is holding the token. A move now records who made it, so these two stop being
+        // scenery for this test: with no actor there is nothing to write on the history row.
+        User actor = new User();
+        actor.setId(7L);
+        actor.setUsername("dina");
+        when(currentUser.requireId()).thenReturn(7L);
+        when(userRepository.findById(7L)).thenReturn(Optional.of(actor));
+
+        // updateStatus touches only these four. The rest are mocked because the constructor asks
         // for them, which is itself a signal: this service does enough that a change to how boards
         // are looked up can break a test about status.
         issueService = new IssueService(
                 issueRepository,
+                historyRepository,
                 mock(ma.dev.workflow.project.repositories.ProjectRepository.class),
                 mock(ma.dev.workflow.board.repositories.BoardRepository.class),
                 mock(ma.dev.workflow.sprint.repositories.SprintRepository.class),
-                mock(ma.dev.workflow.user.repositories.UserRepository.class),
+                userRepository,
                 mock(ma.dev.workflow.project.repositories.ProjectMemberRepository.class),
                 issueMapper,
-                mock(CurrentUser.class),
+                currentUser,
                 // A mock that refuses nothing: this test is about the transition map, not about
                 // who is allowed to move a card. ProjectAccessTest covers that half.
                 mock(ProjectAccess.class),
@@ -149,6 +168,54 @@ class IssueStatusTransitionTest {
         issueService.updateStatus(1L, statusUpdate(Status.IN_PROGRESS, null));
 
         assertThat(issue.getStatus()).isEqualTo(Status.IN_PROGRESS);
+    }
+
+    /**
+     * The history is the only place a past status survives — the issue row is overwritten by the
+     * move. So "was the row written, and does it say the right thing" is a rule with nothing else
+     * enforcing it: no constraint can notice a missing audit row, or one naming the wrong person.
+     */
+    @Test
+    @DisplayName("a move records where it came from, where it went, and who moved it")
+    void recordsTheMove() {
+        Issue issue = issueAt(Status.TO_DO);
+        when(issueRepository.findById(1L)).thenReturn(Optional.of(issue));
+        when(issueRepository.saveAndFlush(any())).thenAnswer(call -> call.getArgument(0));
+
+        issueService.updateStatus(1L, statusUpdate(Status.IN_PROGRESS, null));
+
+        ArgumentCaptor<IssueStatusChange> written = ArgumentCaptor.forClass(IssueStatusChange.class);
+        verify(historyRepository).save(written.capture());
+
+        assertThat(written.getValue().getFromStatus()).isEqualTo(Status.TO_DO);
+        assertThat(written.getValue().getToStatus()).isEqualTo(Status.IN_PROGRESS);
+        assertThat(written.getValue().getIssue()).isSameAs(issue);
+        // The actor comes from the token, so it is 7 whatever the request body said.
+        assertThat(written.getValue().getChangedBy().getUsername()).isEqualTo("dina");
+    }
+
+    @Test
+    @DisplayName("a refused move records nothing, because nothing happened")
+    void recordsNothingWhenTheTransitionIsRefused() {
+        Issue issue = issueAt(Status.TO_DO);
+        when(issueRepository.findById(1L)).thenReturn(Optional.of(issue));
+
+        assertThatThrownBy(() -> issueService.updateStatus(1L, statusUpdate(Status.DONE, null)))
+                .isInstanceOf(BusinessRuleException.class);
+
+        verify(historyRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("picking a card up and dropping it back records nothing")
+    void recordsNothingForAMoveToTheSameStatus() {
+        Issue issue = issueAt(Status.IN_PROGRESS);
+        when(issueRepository.findById(1L)).thenReturn(Optional.of(issue));
+
+        issueService.updateStatus(1L, statusUpdate(Status.IN_PROGRESS, null));
+
+        // Otherwise a fumbled drag would fill the history with moves nobody made.
+        verify(historyRepository, never()).save(any());
     }
 
     private Issue issueAt(Status status) {

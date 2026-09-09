@@ -89,6 +89,20 @@ expect_field_in_list() {
 
 expect_present_in_list() { expect_field_in_list "$@"; }
 
+# expect_list_size <name> <n> - the last array has exactly n elements. The history assertions
+# need this: "a refused move wrote nothing" is a claim about how many rows there are, and every
+# other assertion here would pass just as happily against a row that should not exist.
+expect_list_size() {
+  local name="$1"; local want="$2"
+  local got
+  got=$(echo "$LAST" | python -c "import sys,json;print(len(json.load(sys.stdin)))")
+  if [ "$got" = "$want" ]; then
+    printf 'PASS  --   %s\n' "$name"; pass=$((pass+1))
+  else
+    printf 'FAIL  got %s rows want %s  %s\n' "$got" "$want" "$name"; fail=$((fail+1))
+  fi
+}
+
 # expect_absent_from_list <name> <field> <value> - no element has it. This is the scoping check.
 expect_absent_from_list() {
   local name="$1"; local field="$2"; local want="$3"
@@ -319,6 +333,25 @@ echo "########## BOARD VIEW ##########"
 check "board view" 200 $BASE/boards/$BID/view
 check "board backlog" 200 $BASE/boards/$BID/backlog
 check "view of missing board -> 404" 404 $BASE/boards/999999/view
+
+echo "########## STATUS HISTORY ##########"
+# $IID was moved twice above (TO_DO->IN_PROGRESS->DONE) and refused twice — once for an illegal
+# transition, once for a stale version. So the count is the assertion that matters: it is the
+# only one that fails if a move that never happened got written down.
+check "history of a moved issue" 200 $BASE/issues/$IID/history
+expect_list_size "two moves, and neither refusal was recorded" 2
+expect_field_in_list "the first move is recorded" toStatus IN_PROGRESS
+expect_field_in_list "so is the second" toStatus DONE
+expect_field_in_list "the mover is named, not just numbered" changedByUsername admin
+check "history of an issue nobody moved" 200 $BASE/issues/$I2/history
+expect_list_size "an unmoved card has no history" 0
+# Same shape as a move back and forth on the board: the card ends where it started.
+check "a no-op move is accepted" 200 -X PATCH $BASE/issues/$I2/status -H "$J" -d '{"status":"TO_DO"}'
+check "history after the no-op" 200 $BASE/issues/$I2/history
+expect_list_size "picking a card up and dropping it back records nothing" 0
+check "history of a missing issue -> 404" 404 $BASE/issues/999999/history
+# Read-only by construction: the rows are written by the move, so there is nothing to post.
+check "posting a move by hand -> 405" 405 -X POST $BASE/issues/$IID/history -H "$J" -d '{"toStatus":"DONE"}'
 
 echo "########## COMMENTS ##########"
 # No authorId is sent: the server takes it from the token.
