@@ -6,9 +6,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -16,6 +18,7 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.List;
+import java.util.Set;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -100,6 +103,24 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiError> handleNoResource(NoResourceFoundException ex,
                                                      HttpServletRequest request) {
         return build(HttpStatus.NOT_FOUND, "NOT_FOUND", "No endpoint for this URL.", request);
+    }
+
+    /**
+     * The URL exists, the verb does not — POST to a read-only endpoint such as
+     * {@code /issues/{id}/history}. Without this it fell through to the catch-all below and came
+     * back as a 500, which says "we broke" for what is really "you cannot do that here", and it
+     * dropped the {@code Allow} header that tells the caller what they may do instead.
+     */
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ApiError> handleMethodNotSupported(HttpRequestMethodNotSupportedException ex,
+                                                             HttpServletRequest request) {
+        Set<HttpMethod> allowed = ex.getSupportedHttpMethods();
+        ResponseEntity.BodyBuilder response = ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED);
+        if (allowed != null && !allowed.isEmpty()) {
+            response.allow(allowed.toArray(new HttpMethod[0]));
+        }
+        return response.body(new ApiError(HttpStatus.METHOD_NOT_ALLOWED.value(), "METHOD_NOT_ALLOWED",
+                ex.getMethod() + " is not supported for this endpoint.", request.getRequestURI()));
     }
 
     /** Anything unforeseen. Logs the stack trace, never returns it. */
