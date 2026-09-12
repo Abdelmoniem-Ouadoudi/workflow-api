@@ -16,7 +16,7 @@ export function RequireAuth() {
   const location = useLocation()
 
   if (checking) {
-    return <p className="page__loading page">Checking your session…</p>
+    return <p className="loading content">Checking your session…</p>
   }
   if (session === null) {
     // Remember where they were going, so signing in lands them there rather than on the project

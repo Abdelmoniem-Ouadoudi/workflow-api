@@ -5,6 +5,9 @@ import type { IssueType, Priority } from '../api/types'
 import { ISSUE_TYPES, PRIORITIES } from '../api/types'
 import { DuplicatePanel } from './DuplicatePanel'
 
+/** The top bar's "Create issue" button focuses this input rather than opening a second form. */
+export const NEW_ISSUE_TITLE_ID = 'new-issue-title'
+
 interface Props {
   projectId: number
   /** Scopes the duplicate check. A duplicate in another project is not a duplicate. */
@@ -55,52 +58,69 @@ export function NewIssueForm({
   }
 
   return (
-    <form className="compose" onSubmit={handleSubmit}>
-      <div className="compose__field compose__field--grow">
+    <form className="card compose" onSubmit={handleSubmit}>
+      <h2 className="card__title">New issue</h2>
+
+      <div className="field">
+        <label className="field__label" htmlFor={NEW_ISSUE_TITLE_ID}>
+          Title
+        </label>
         <input
-          className={`compose__input${titleError ? ' compose__input--bad' : ''}`}
+          id={NEW_ISSUE_TITLE_ID}
+          className={`input${titleError ? ' input--bad' : ''}`}
           placeholder="What needs doing?"
           value={title}
           onChange={(event) => setTitle(event.target.value)}
-          aria-label="Issue title"
           aria-invalid={Boolean(titleError)}
         />
-        {titleError && <span className="compose__error">{titleError}</span>}
+        {titleError && <span className="field__error">{titleError}</span>}
       </div>
 
-      <select
-        className="compose__select"
-        value={type}
-        onChange={(event) => setType(event.target.value as IssueType)}
-        aria-label="Type"
-      >
-        {ISSUE_TYPES.map((option) => (
-          <option key={option} value={option}>
-            {option.toLowerCase()}
-          </option>
-        ))}
-      </select>
+      <div className="compose__row">
+        <div className="field">
+          <label className="field__label" htmlFor="new-issue-type">
+            Type
+          </label>
+          <select
+            id="new-issue-type"
+            className="select"
+            value={type}
+            onChange={(event) => setType(event.target.value as IssueType)}
+          >
+            {ISSUE_TYPES.map((option) => (
+              <option key={option} value={option}>
+                {option.charAt(0) + option.slice(1).toLowerCase()}
+              </option>
+            ))}
+          </select>
+        </div>
 
-      <select
-        className="compose__select"
-        value={priority}
-        onChange={(event) => setPriority(event.target.value as Priority)}
-        aria-label="Priority"
-      >
-        {PRIORITIES.map((option) => (
-          <option key={option} value={option}>
-            {option.toLowerCase()}
-          </option>
-        ))}
-      </select>
+        <div className="field">
+          <label className="field__label" htmlFor="new-issue-priority">
+            Priority
+          </label>
+          <select
+            id="new-issue-priority"
+            className="select"
+            value={priority}
+            onChange={(event) => setPriority(event.target.value as Priority)}
+          >
+            {PRIORITIES.map((option) => (
+              <option key={option} value={option}>
+                {option.charAt(0) + option.slice(1).toLowerCase()}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
 
-      <button className="button" type="submit" disabled={saving}>
+      {/* Above the button, so a match is read before it is pressed. Renders nothing at all when
+          there is no match. */}
+      <DuplicatePanel text={title} projectKey={projectKey} onOpen={onOpenExisting} />
+
+      <button className="button button--lg" type="submit" disabled={saving}>
         {saving ? 'Adding…' : 'Add issue'}
       </button>
-
-      {/* Full width under the row, so a match is read before the button is pressed rather than
-          squeezed beside it. Renders nothing at all when there is no match. */}
-      <DuplicatePanel text={title} projectKey={projectKey} onOpen={onOpenExisting} />
     </form>
   )
 }

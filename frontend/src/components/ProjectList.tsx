@@ -1,18 +1,18 @@
 import { useEffect, useState } from 'react'
-import type { CSSProperties, FormEvent } from 'react'
+import type { FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ApiError, api } from '../api/client'
-import type { Project } from '../api/types'
+import type { Dashboard, Project } from '../api/types'
 import { useSession } from '../auth/SessionContext'
 import { Notice } from './Notice'
 import type { NoticeState } from './Notice'
-import { WhoAmI } from './WhoAmI'
+import { Page, PageHead, colourFor } from './ui'
 
-const dateFormatter = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' })
-
-function formatShortDate(iso: string): string {
-  return dateFormatter.format(new Date(iso))
-}
+const dateFormatter = new Intl.DateTimeFormat(undefined, {
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+})
 
 /**
  * Your projects — since M5, only the ones you are actually on.
@@ -23,6 +23,7 @@ function formatShortDate(iso: string): string {
  */
 export function ProjectList() {
   const [projects, setProjects] = useState<Project[]>([])
+  const [numbers, setNumbers] = useState<Dashboard | null>(null)
   const [key, setKey] = useState('')
   const [name, setName] = useState('')
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -32,18 +33,32 @@ export function ProjectList() {
   const { canCreateProjects } = useSession()
   const navigate = useNavigate()
 
-  async function load() {
-    try {
-      setProjects(await api.listProjects())
-    } catch (error) {
-      if (error instanceof ApiError) setNotice({ tone: 'stop', message: error.message })
-    } finally {
-      setLoading(false)
-    }
-  }
-
   useEffect(() => {
-    void load()
+    let cancelled = false
+    api
+      .listProjects()
+      .then((list) => {
+        if (!cancelled) setProjects(list)
+      })
+      .catch((error) => {
+        if (!cancelled && error instanceof ApiError) setNotice({ tone: 'stop', message: error.message })
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+
+    // The four figures across the top are a courtesy. If they cannot be read the projects still
+    // can, so a failure here draws no tiles rather than an error over the list.
+    api
+      .dashboard()
+      .then((loaded) => {
+        if (!cancelled) setNumbers(loaded)
+      })
+      .catch(() => undefined)
+
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   async function handleSubmit(event: FormEvent) {
@@ -52,9 +67,6 @@ export function ProjectList() {
     setNotice(null)
     try {
       const created = await api.createProject({ key, name })
-      setKey('')
-      setName('')
-      setProjects((current) => [...current, created])
       // You are its project manager the moment it exists, so the members screen is the useful
       // next stop: it is where the join code is.
       navigate(`/projects/${created.id}/members`)
@@ -68,61 +80,69 @@ export function ProjectList() {
     }
   }
 
+  const openIssues = numbers?.byStatus
+    .filter((row) => row.label !== 'DONE')
+    .reduce((sum, row) => sum + row.count, 0)
+
   return (
-    <main className="page">
+    <Page
+      crumbs={[{ label: 'Projects' }]}
+      actions={
+        <Link className="button" to="/join">
+          Join a project
+        </Link>
+      }
+    >
+      <PageHead title="Projects" sub="All projects you're a member of" />
       <Notice notice={notice} onDismiss={() => setNotice(null)} />
 
-      <header className="masthead">
-        <div className="masthead__top">
-          {projects.length > 0 ? (
-            <p className="masthead__eyebrow">
-              {projects.length} {projects.length === 1 ? 'project' : 'projects'} tracked
-            </p>
-          ) : (
-            <span />
-          )}
-          <WhoAmI />
-        </div>
-        <h1 className="masthead__title">Workflow</h1>
-        <p className="masthead__sub">
-          Track work through three states. Nothing skips a step.{' '}
-          <Link className="link" to="/dashboard">
-            See the insights
-          </Link>{' '}
-          <Link className="link" to="/join">
-            Join a project
-          </Link>
-        </p>
-        <div className="masthead__rail" aria-hidden="true" />
-      </header>
+      {numbers && (
+        <section className="stats">
+          <Stat value={String(projects.length)} label="Projects you're on" />
+          <Stat value={String(openIssues)} label="Open issues" />
+          <Stat value={String(numbers.awaitingReview)} label="Awaiting AI review" />
+          {/* Null and zero are different claims: zero says the AI is always wrong, null says
+              nobody has judged a suggestion yet. */}
+          <Stat
+            value={numbers.aiAgreementRate === null ? '—' : `${numbers.aiAgreementRate}%`}
+            label="AI agreement rate"
+          />
+        </section>
+      )}
 
       {/*
         A DEVELOPER joins projects; they do not start them. Hiding the form is a courtesy - the
         rule is enforced in work-service, which answers 403 to the request whatever is rendered.
       */}
       {canCreateProjects && (
-        <form className="compose compose--project" onSubmit={handleSubmit}>
-          <div className="compose__field">
+        <form className="card new-project" onSubmit={handleSubmit}>
+          <div className="field field--key">
+            <label className="field__label" htmlFor="project-key">
+              Key
+            </label>
             <input
-              className={`compose__input compose__input--key${errors.key ? ' compose__input--bad' : ''}`}
-              placeholder="KEY"
+              id="project-key"
+              className={`input${errors.key ? ' input--bad' : ''}`}
+              placeholder="WM"
               value={key}
               onChange={(event) => setKey(event.target.value.toUpperCase())}
-              aria-label="Project key"
               aria-invalid={Boolean(errors.key)}
             />
-            {errors.key && <span className="compose__error">{errors.key}</span>}
+            {errors.key && <span className="field__error">{errors.key}</span>}
           </div>
-          <div className="compose__field compose__field--grow">
+          <div className="field field--grow">
+            <label className="field__label" htmlFor="project-name">
+              New project
+            </label>
             <input
-              className={`compose__input${errors.name ? ' compose__input--bad' : ''}`}
+              id="project-name"
+              className={`input${errors.name ? ' input--bad' : ''}`}
               placeholder="Project name"
               value={name}
               onChange={(event) => setName(event.target.value)}
-              aria-label="Project name"
               aria-invalid={Boolean(errors.name)}
             />
-            {errors.name && <span className="compose__error">{errors.name}</span>}
+            {errors.name && <span className="field__error">{errors.name}</span>}
           </div>
           <button className="button" type="submit">
             Create project
@@ -130,35 +150,53 @@ export function ProjectList() {
         </form>
       )}
 
-      {loading && <p className="page__loading">Loading projects…</p>}
+      {loading && <p className="loading">Loading projects…</p>}
 
       {!loading && projects.length === 0 && (
-        <p className="page__empty">
+        <p className="empty">
           {canCreateProjects
             ? 'No projects yet. Create one above, or join one with a code somebody sent you.'
-            : 'You are not on any project yet. Ask whoever runs one for its join code, then use “Join a project” above.'}
+            : 'You are not on any project yet. Ask whoever runs one for its join code, then use “Join a project”.'}
         </p>
       )}
 
-      <ul className="projects">
-        {projects.map((project, index) => (
-          <li key={project.id}>
-            <div className="projects__row" style={{ '--i': index } as CSSProperties}>
-              <Link className="projects__open" to={`/projects/${project.id}/board`}>
-                <span className="projects__key">{project.key}</span>
-                <span className="projects__name">{project.name}</span>
-                <span className="projects__date">{formatShortDate(project.createdAt)}</span>
-                <span className="projects__go" aria-hidden="true">
-                  →
-                </span>
+      <div className="project-grid">
+        {projects.map((project) => (
+          <article className="project" key={project.id}>
+            <div className="project__top">
+              <span className="project__tile" style={{ background: colourFor(project.key) }}>
+                {project.key.slice(0, 2)}
+              </span>
+              <div>
+                <h2 className="project__name">{project.name}</h2>
+                <p className="project__meta">
+                  {project.key} · Created {dateFormatter.format(new Date(project.createdAt))}
+                </p>
+              </div>
+            </div>
+
+            <p className="project__desc">{project.description ?? 'No description.'}</p>
+
+            <div className="project__actions">
+              <Link className="button button--soft button--sm" to={`/projects/${project.id}/board`}>
+                Open board
               </Link>
-              <Link className="button button--quiet" to={`/projects/${project.id}/members`}>
+              <Link className="button button--ghost button--sm" to={`/projects/${project.id}/members`}>
                 People
               </Link>
             </div>
-          </li>
+          </article>
         ))}
-      </ul>
-    </main>
+      </div>
+    </Page>
+  )
+}
+
+function Stat({ value, label }: { value: string; label: string }) {
+  return (
+    <div className="stat">
+      <p className="stat__value">{value}</p>
+      <p className="stat__label">{label}</p>
+    </div>
   )
 }

@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { ApiError, api } from '../api/client'
 import type { CountByLabel, Dashboard as DashboardData } from '../api/types'
 import { Notice } from './Notice'
 import type { NoticeState } from './Notice'
-import { WhoAmI } from './WhoAmI'
+import { Page, PageHead } from './ui'
 
 /**
  * What the AI layer has actually done, in numbers.
@@ -38,44 +37,31 @@ export function Dashboard() {
     }
   }, [])
 
-  if (loading) return <p className="page__loading page">Reading the numbers…</p>
-
   return (
-    <main className="page">
+    <Page crumbs={[{ label: 'Insights' }]}>
+      <PageHead
+        title="Insights"
+        sub="What the classifier has read, and how often it was right — across the projects you are on."
+      />
       <Notice notice={notice} onDismiss={() => setNotice(null)} />
 
-      <header className="masthead">
-        <div className="masthead__top">
-          <Link className="panel__back" to="/projects">
-            ← Projects
-          </Link>
-          <WhoAmI />
-        </div>
-        <h1 className="masthead__title">Insights</h1>
-        <p className="masthead__sub">
-          What the classifier has read, and how often it was right — across the projects you are
-          on. An administrator sees every project.
-        </p>
-        <div className="masthead__rail" aria-hidden="true" />
-      </header>
+      {loading && <p className="loading">Reading the numbers…</p>}
 
       {data && (
         <>
-          <section className="figures">
-            <Figure label="Issues" value={String(data.totalIssues)} />
-            <Figure label="Read by the AI" value={String(data.classifiedIssues)} />
-            <Figure label="Awaiting review" value={String(data.awaitingReview)} />
-            <Figure
-              label="Agreement"
+          <section className="stats">
+            <Stat label="Issues" value={String(data.totalIssues)} />
+            <Stat label="Read by the AI" value={String(data.classifiedIssues)} />
+            <Stat label="Awaiting review" value={String(data.awaitingReview)} />
+            <Stat
               // Null and zero are different claims. Zero would say the AI is always wrong;
               // null says nobody has judged one yet, which is the honest state on a new install.
-              value={data.aiAgreementRate === null ? '—' : `${data.aiAgreementRate}%`}
-              note={
+              label={
                 data.aiAgreementRate === null
-                  ? 'Nothing judged yet'
-                  : 'Applied or accepted, out of everything decided'
+                  ? 'AI agreement — nothing judged yet'
+                  : 'AI agreement rate'
               }
-              strong
+              value={data.aiAgreementRate === null ? '—' : `${data.aiAgreementRate}%`}
             />
           </section>
 
@@ -94,26 +80,15 @@ export function Dashboard() {
           </div>
         </>
       )}
-    </main>
+    </Page>
   )
 }
 
-function Figure({
-  label,
-  value,
-  note,
-  strong,
-}: {
-  label: string
-  value: string
-  note?: string
-  strong?: boolean
-}) {
+function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className={`figure${strong ? ' figure--strong' : ''}`}>
-      <span className="figure__label">{label}</span>
-      <span className="figure__value">{value}</span>
-      {note && <span className="figure__note">{note}</span>}
+    <div className="stat">
+      <p className="stat__value">{value}</p>
+      <p className="stat__label">{label}</p>
     </div>
   )
 }
@@ -124,16 +99,16 @@ function Chart({ title, rows, note }: { title: string; rows: CountByLabel[]; not
   const largest = rows.reduce((max, row) => Math.max(max, row.count), 0)
 
   return (
-    <section className="chart">
-      <h2 className="chart__title">{title}</h2>
+    <section className="card">
+      <h2 className="card__title">{title}</h2>
       {note && <p className="chart__note">{note}</p>}
 
-      {rows.length === 0 && <p className="chart__empty">Nothing yet.</p>}
+      {rows.length === 0 && <p className="empty">Nothing yet.</p>}
 
       <ul className="chart__rows">
         {rows.map((row) => (
           <li className="chart__row" key={row.label}>
-            <span className="chart__label">{row.label.toLowerCase()}</span>
+            <span className="chart__label">{row.label.replace('_', ' ').toLowerCase()}</span>
             <span className="chart__track">
               <span
                 className="chart__bar"

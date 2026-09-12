@@ -103,6 +103,25 @@ export interface Issue {
   version: number
 }
 
+/** What GET /issues/{id} returns: the whole IssueDTO, for the issue's own page. */
+export interface IssueDetail {
+  id: number
+  issueKey: string
+  title: string
+  description: string | null
+  type: IssueType
+  status: Status
+  priority: Priority
+  projectId: number
+  boardId: number | null
+  sprintId: number | null
+  reporterId: number
+  assigneeId: number | null
+  dueDate: string | null
+  version: number
+  createdAt: string
+}
+
 /** What PUT /issues/{id}/assignee returns — the full IssueDTO, we only read these three. */
 export interface IssueAssignment {
   id: number

@@ -77,89 +77,74 @@ export function SignIn({ mode }: Props) {
 
   return (
     <main className="gate">
-      <div className="gate__panel">
-        <Notice notice={notice} onDismiss={() => setNotice(null)} />
-
-        <header className="gate__head">
-          <p className="masthead__eyebrow">Access</p>
-          <h1 className="gate__title">Workflow</h1>
-          <p className="gate__sub">
-            {creating
-              ? 'Create an account. An administrator approves it before you can sign in.'
-              : 'Sign in to reach your projects.'}
-          </p>
-          <div className="masthead__rail" aria-hidden="true" />
-        </header>
-
-        <div className="gate__modes" role="tablist" aria-label="Access mode">
-          <Link
-            to="/login"
-            role="tab"
-            aria-selected={!creating}
-            className={`gate__mode${!creating ? ' gate__mode--on' : ''}`}
-          >
-            Sign in
-          </Link>
-          <Link
-            to="/register"
-            role="tab"
-            aria-selected={creating}
-            className={`gate__mode${creating ? ' gate__mode--on' : ''}`}
-          >
-            Create account
-          </Link>
+      <div className="gate__card">
+        <div className="brand brand--dark">
+          <span className="brand__mark">W</span>
+          Workflow
         </div>
 
+        <h1 className="gate__title">{creating ? 'Create your account' : 'Welcome back'}</h1>
+        <p className="gate__sub">
+          {creating
+            ? 'An administrator approves it before you can sign in.'
+            : 'Sign in to reach your projects.'}
+        </p>
+
         <form className="gate__form" onSubmit={handleSubmit}>
-          <div className="compose__field">
-            <label className="gate__label" htmlFor="username">
+          <Notice notice={notice} onDismiss={() => setNotice(null)} />
+
+          <div className="field">
+            <label className="field__label" htmlFor="username">
               Username
             </label>
             <input
               id="username"
-              className={`compose__input${errors.username ? ' compose__input--bad' : ''}`}
+              className={`input${errors.username ? ' input--bad' : ''}`}
+              placeholder="Your username"
               value={username}
               onChange={(event) => setUsername(event.target.value)}
               autoComplete="username"
               aria-invalid={Boolean(errors.username)}
             />
-            {errors.username && <span className="compose__error">{errors.username}</span>}
+            {errors.username && <span className="field__error">{errors.username}</span>}
           </div>
 
           {creating && (
-            <div className="compose__field">
-              <label className="gate__label" htmlFor="email">
+            <div className="field">
+              <label className="field__label" htmlFor="email">
                 Email
               </label>
               <input
                 id="email"
                 type="email"
-                className={`compose__input${errors.email ? ' compose__input--bad' : ''}`}
+                className={`input${errors.email ? ' input--bad' : ''}`}
+                placeholder="you@company.com"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
                 autoComplete="email"
                 aria-invalid={Boolean(errors.email)}
               />
-              {errors.email && <span className="compose__error">{errors.email}</span>}
+              {errors.email && <span className="field__error">{errors.email}</span>}
             </div>
           )}
 
-          <div className="compose__field">
-            <label className="gate__label" htmlFor="password">
+          <div className="field">
+            <label className="field__label" htmlFor="password">
               Password
             </label>
             <input
               id="password"
               type="password"
-              className={`compose__input${errors.password ? ' compose__input--bad' : ''}`}
+              className={`input${errors.password ? ' input--bad' : ''}`}
+              placeholder="••••••••"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               autoComplete={creating ? 'new-password' : 'current-password'}
               aria-invalid={Boolean(errors.password)}
             />
-            {errors.password && <span className="compose__error">{errors.password}</span>}
+            {errors.password && <span className="field__error">{errors.password}</span>}
             {creating && !errors.password && (
-              <span className="gate__hint">At least 8 characters.</span>
+              <span className="field__hint">At least 8 characters.</span>
             )}
           </div>
 
@@ -168,17 +153,20 @@ export function SignIn({ mode }: Props) {
             anyone could make themselves an administrator. Everybody now registers the same way
             and an administrator decides what they are.
           */}
-          {creating && (
-            <p className="gate__hint">
-              An administrator reviews new accounts and decides what you can do. You will not be
-              able to sign in until they have.
-            </p>
-          )}
-
-          <button className="button gate__submit" type="submit" disabled={busy}>
+          <button className="button button--lg" type="submit" disabled={busy}>
             {busy ? 'Working…' : creating ? 'Create account' : 'Sign in'}
           </button>
+
+          <div className="gate__or">or</div>
+
+          <Link className="button button--ghost button--lg" to={creating ? '/login' : '/register'}>
+            {creating ? 'Sign in instead' : 'Create account'}
+          </Link>
         </form>
+
+        <p className="gate__foot">
+          New accounts wait for an administrator to approve them before they can sign in.
+        </p>
       </div>
     </main>
   )

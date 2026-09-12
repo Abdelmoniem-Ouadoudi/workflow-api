@@ -1,4 +1,3 @@
-import type { CSSProperties } from 'react'
 import type { IssueSummary, Status } from '../api/types'
 import { STATUS_LABEL } from '../api/types'
 import { IssueCard } from './IssueCard'
@@ -18,7 +17,6 @@ const EMPTY_TEXT: Record<Status, string> = {
 }
 
 interface Props {
-  index: number
   status: Status
   issues: IssueSummary[]
   state: ColumnState
@@ -32,7 +30,6 @@ interface Props {
 }
 
 export function Column({
-  index,
   status,
   issues,
   state,
@@ -45,9 +42,10 @@ export function Column({
   onOpen,
 }: Props) {
   return (
+    // Two classes: the status gives the column its tint, the state says whether a lifted card
+    // may land here. They are independent, so neither is folded into the other.
     <section
-      className={`column column--${state}`}
-      style={{ '--i': index } as CSSProperties}
+      className={`column column--${status} column--${state}`}
       onDragOver={(event) => {
         // Without preventDefault the browser never fires a drop event on this element.
         if (state === 'clear' || state === 'source') event.preventDefault()
@@ -59,10 +57,9 @@ export function Column({
       aria-label={STATUS_LABEL[status]}
     >
       <header className="column__head">
-        <h2 className="column__name">{STATUS_LABEL[status]}</h2>
-        <span className="column__count">{String(issues.length).padStart(2, '0')}</span>
+        <h2>{STATUS_LABEL[status]}</h2>
+        <span>{issues.length}</span>
       </header>
-      <div className="column__signal" />
 
       {state === 'held' && holdReason && (
         <p className="column__hold" role="status">
@@ -75,10 +72,9 @@ export function Column({
           <p className="column__empty">{EMPTY_TEXT[status]}</p>
         )}
 
-        {issues.map((issue, cardIndex) => (
+        {issues.map((issue) => (
           <IssueCard
             key={issue.id}
-            index={cardIndex}
             issue={issue}
             lifted={issue.id === liftedId}
             onLift={() => onLift(issue)}

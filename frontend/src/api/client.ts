@@ -13,6 +13,7 @@ import type {
   Issue,
   IssueAssignment,
   IssueComment,
+  IssueDetail,
   IssueStatusChange,
   IssueType,
   JoinRequest,
@@ -306,6 +307,9 @@ export const api = {
 
   createIssue: (issue: NewIssue) =>
     request<Issue>('/issues', { method: 'POST', body: JSON.stringify(issue) }),
+
+  /** One issue in full. 403 for a project you are not on, 404 for an id that does not exist. */
+  getIssue: (id: number) => request<IssueDetail>(`/issues/${id}`),
 
   /**
    * `version` is the value the board last saw. If the row moved on since then the server

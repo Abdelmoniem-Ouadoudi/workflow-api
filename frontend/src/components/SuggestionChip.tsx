@@ -113,8 +113,8 @@ export function SuggestionChip({ issueId, onIssueChanged }: Props) {
 
   if (phase === 'waiting') {
     return (
-      <div className="chip chip--waiting">
-        <span className="chip__eyebrow">Triage</span>
+      <div className="chip">
+        <span className="chip__eyebrow">AI triage</span>
         <p className="chip__line">Reading the ticket…</p>
       </div>
     )
@@ -123,7 +123,7 @@ export function SuggestionChip({ issueId, onIssueChanged }: Props) {
   if (phase === 'gaveUp' || phase === 'failed') {
     return (
       <div className="chip">
-        <span className="chip__eyebrow">Triage</span>
+        <span className="chip__eyebrow">AI triage</span>
         <p className="chip__line">{error ?? 'No suggestion came back.'}</p>
         <button type="button" className="link" onClick={retry}>
           Check again
@@ -142,13 +142,16 @@ export function SuggestionChip({ issueId, onIssueChanged }: Props) {
   return (
     <div className="chip chip--ready">
       <div className="chip__head">
-        <span className="chip__eyebrow">{REVIEW_LABEL[classification.reviewStatus]}</span>
-        {/* Which model said this. "stub-v1" means keyword rules, not AI — printed so the screen
-            itself says so and the stub can never be mistaken for the real thing. */}
-        <span className="chip__model" title="The model that produced this">
-          {classification.modelVersion} · {confidence}%
+        <span className="chip__eyebrow">AI triage</span>
+        <span className="pill pill--purple pill--round">
+          {REVIEW_LABEL[classification.reviewStatus]}
         </span>
       </div>
+      {/* Which model said this. "stub-v1" means keyword rules, not AI — printed so the screen
+          itself says so and the stub can never be mistaken for the real thing. */}
+      <p className="chip__model" title="The model that produced this">
+        {classification.modelVersion} · {confidence}% confident
+      </p>
 
       <dl className="chip__values">
         {classification.suggestedType && (

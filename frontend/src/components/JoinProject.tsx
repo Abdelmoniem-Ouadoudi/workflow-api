@@ -5,6 +5,7 @@ import { ApiError, api } from '../api/client'
 import type { ProjectLookup } from '../api/types'
 import { Notice } from './Notice'
 import type { NoticeState } from './Notice'
+import { Page, PageHead, colourFor } from './ui'
 
 type Step = 'entering' | 'confirming' | 'asked'
 
@@ -90,81 +91,80 @@ export function JoinProject() {
   }
 
   return (
-    <main className="page">
-      <header className="masthead">
-        <div>
-          <p className="masthead__eyebrow">Join</p>
-          <h1 className="masthead__title">Join a project</h1>
-        </div>
-        <Link className="button button--quiet" to="/projects">
-          My projects
-        </Link>
-      </header>
-      <div className="masthead__rail" aria-hidden="true" />
+    <Page crumbs={[{ label: 'Join a project' }]}>
+      <PageHead title="Join a project" sub="Use the code a project manager sent you." />
 
-      <Notice notice={notice} onDismiss={() => setNotice(null)} />
+      <div className="narrow">
+        <Notice notice={notice} onDismiss={() => setNotice(null)} />
 
-      {step === 'asked' && project !== null ? (
-        <section className="gate__panel">
-          <h2 className="gate__title">Request sent</h2>
-          <p className="gate__sub">
-            The project manager of {project.name} has been asked to add you. The project appears in
-            your list once they accept.
-          </p>
-          <Link className="button gate__submit" to="/projects">
-            My projects
-          </Link>
-        </section>
-      ) : step === 'confirming' && project !== null ? (
-        <section className="gate__panel">
-          <h2 className="gate__title">
-            {project.name} <span className="chip">{project.key}</span>
-          </h2>
-          <p className="gate__sub">Is this the project you were told about?</p>
-          <div className="chip__actions">
-            <button className="button" type="button" onClick={() => void ask()} disabled={busy}>
-              {busy ? 'Asking…' : 'Ask to join'}
+        {step === 'asked' && project !== null ? (
+          <section className="card stack">
+            <h2 className="card__title">Request sent</h2>
+            <p className="note">
+              The project manager of {project.name} has been asked to add you. The project appears in
+              your list once they accept.
+            </p>
+            <Link className="button button--lg" to="/projects">
+              My projects
+            </Link>
+          </section>
+        ) : step === 'confirming' && project !== null ? (
+          <section className="card stack">
+            <div className="project__top">
+              <span className="project__tile" style={{ background: colourFor(project.key) }}>
+                {project.key.slice(0, 2)}
+              </span>
+              <div>
+                <h2 className="project__name">{project.name}</h2>
+                <p className="project__meta">{project.key}</p>
+              </div>
+            </div>
+            <p className="note">Is this the project you were told about?</p>
+            <div className="row__actions">
+              <button className="button" type="button" onClick={() => void ask()} disabled={busy}>
+                {busy ? 'Asking…' : 'Ask to join'}
+              </button>
+              <button
+                className="button button--ghost"
+                type="button"
+                onClick={() => {
+                  setProject(null)
+                  setStep('entering')
+                }}
+              >
+                Use another code
+              </button>
+            </div>
+          </section>
+        ) : (
+          <form className="card stack" onSubmit={handleSubmit}>
+            <div className="field">
+              <label className="field__label" htmlFor="joinCode">
+                Join code
+              </label>
+              <input
+                id="joinCode"
+                className="input"
+                value={joinCode}
+                // Upper-cased as it is typed, because that is how the code is generated and how it
+                // was written in the message. Nobody should have to hold shift for twelve characters.
+                onChange={(event) => setJoinCode(event.target.value.toUpperCase())}
+                placeholder="ABCD2345EFGH"
+                maxLength={16}
+                autoComplete="off"
+              />
+              <span className="field__hint">
+                Twelve characters, from whoever runs the project. It is not the project key you see
+                on tickets.
+              </span>
+            </div>
+
+            <button className="button button--lg" type="submit" disabled={busy}>
+              {busy ? 'Checking…' : 'Find the project'}
             </button>
-            <button
-              className="button button--quiet"
-              type="button"
-              onClick={() => {
-                setProject(null)
-                setStep('entering')
-              }}
-            >
-              Use another code
-            </button>
-          </div>
-        </section>
-      ) : (
-        <form className="gate__form gate__panel" onSubmit={handleSubmit}>
-          <div className="compose__field">
-            <label className="gate__label" htmlFor="joinCode">
-              Join code
-            </label>
-            <input
-              id="joinCode"
-              className="compose__input"
-              value={joinCode}
-              // Upper-cased as it is typed, because that is how the code is generated and how it
-              // was written in the message. Nobody should have to hold shift for twelve characters.
-              onChange={(event) => setJoinCode(event.target.value.toUpperCase())}
-              placeholder="ABCD2345EFGH"
-              maxLength={16}
-              autoComplete="off"
-            />
-            <span className="gate__hint">
-              Twelve characters, from whoever runs the project. It is not the project key you see on
-              tickets.
-            </span>
-          </div>
-
-          <button className="button gate__submit" type="submit" disabled={busy}>
-            {busy ? 'Checking…' : 'Find the project'}
-          </button>
-        </form>
-      )}
-    </main>
+          </form>
+        )}
+      </div>
+    </Page>
   )
 }

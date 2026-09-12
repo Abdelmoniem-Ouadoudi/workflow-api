@@ -16,30 +16,32 @@ export function PendingApproval() {
 
   return (
     <main className="gate">
-      <div className="gate__panel">
-        <header className="gate__head">
-          <p className="masthead__eyebrow">Waiting</p>
-          <h1 className="gate__title">Almost there</h1>
-          <p className="gate__sub">
-            {username === undefined
-              ? 'Your account is waiting for an administrator to approve it.'
-              : `${username} is waiting for an administrator to approve it.`}
+      <div className="gate__card">
+        <div className="brand brand--dark">
+          <span className="brand__mark">W</span>
+          Workflow
+        </div>
+
+        <h1 className="gate__title">Almost there</h1>
+        <p className="gate__sub">
+          {username === undefined
+            ? 'Your account is waiting for an administrator to approve it.'
+            : `${username} is waiting for an administrator to approve it.`}
+        </p>
+
+        <div className="gate__form">
+          <p className="note">
+            An administrator decides what you can do — whether you can start projects of your own,
+            or join ones other people run. Until then signing in will send you back here.
           </p>
-          <div className="masthead__rail" aria-hidden="true" />
-        </header>
+          <p className="note">
+            Once you are in, a project manager can send you a join code for their project.
+          </p>
 
-        <p className="gate__hint">
-          An administrator decides what you can do — whether you can start projects of your own, or
-          join ones other people run. Until then signing in will send you back here.
-        </p>
-
-        <p className="gate__hint">
-          Once you are in, a project manager can send you a join code for their project.
-        </p>
-
-        <Link className="button gate__submit" to="/login">
-          Back to sign in
-        </Link>
+          <Link className="button button--lg" to="/login">
+            Back to sign in
+          </Link>
+        </div>
       </div>
     </main>
   )

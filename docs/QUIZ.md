@@ -1269,3 +1269,29 @@ But Spring's `HttpRequestMethodNotSupportedException` was falling through to the
 and coming back as a 500, which claims the server broke when the truth is the caller asked for
 something that does not exist. It now maps to 405 with an `Allow` header naming the verbs that do.
 Found by the smoke test, which asserts the code and not merely that the call failed.
+
+## Why the issue became a page instead of a drawer
+
+The mockups show an issue on its own page, and the router already existed, so the drawer went. The
+real gain is not the look: a page has an address. `/projects/1/issues/42` can be pasted into a
+comment, bookmarked, and refreshed into — a drawer over the board could do none of that.
+
+It also removed a bug class. The drawer shared the board's cached copy of the card, so every change
+made inside it (assigning, accepting an AI suggestion) had to push the new version back to the board,
+or the next drag sent a stale version and got a false 409. Now the board reloads when you come back
+to it, so it is never holding a version older than the server's.
+
+## Why the redesign added no sprint tabs or profile page
+
+The mockups include a Backlog tab, a Sprints tab, "Complete sprint" and a whole profile page. None
+were built, on purpose: the profile needs data that does not exist (full name, avatar, a
+self-service endpoint), and sprint planning is a feature, not a restyle. Drawing inputs that save
+nothing is exactly the kind of stub the project's quality bar forbids. All three are BACKLOG items
+53–55 with the reason.
+
+## Why there is still no UI library
+
+Every screen is plain React with one stylesheet of CSS variables. A component library would have
+matched the mockups faster, but it is a dependency the jury can ask about, and every class in
+`styles.css` can be explained line by line. Avatar colours are derived from the name with a small
+hash, so the same person has the same colour everywhere without storing anything.
