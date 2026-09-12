@@ -1,6 +1,6 @@
 # Workflow — work management platform
 
-A Jira-like platform (projects, boards, sprints, issues) with an AI layer that classifies each new
+platform (projects, boards, sprints, issues) with an AI layer that classifies each new
 ticket and spots duplicates. Year-end academic project (PFA).
 
 Five Spring Boot services behind a gateway, a React frontend, PostgreSQL + pgvector and RabbitMQ.
