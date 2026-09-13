@@ -163,8 +163,17 @@ bash scripts/smoke-test.sh         # end-to-end through the gateway; the whole s
 
 ---
 
+## Deploy
+
+Every service, the frontend and Postgres have a `Dockerfile`. **`docs/DEPLOY-RAILWAY.md`** walks
+through deploying the whole stack to Railway: which services to create, their variables, and what
+to expect on the first deploy.
+
+---
+
 ## Documentation
 
+- `docs/DEPLOY-RAILWAY.md` — deploying to Railway
 - `docs/PROJECT.md` — milestones
 - `docs/DATA-MODEL.md` — every table and foreign key
 - `docs/services/` — one page per service, with diagrams

@@ -93,3 +93,12 @@ discovery  →  work  →  auth  →  classification  →  gateway
 
 Eureka needs up to ~30 seconds to notice a service. `http://localhost:8761` must list all four
 before the gateway can route anything.
+
+---
+
+## Deployed
+
+Each service folder has a `Dockerfile` (as do `frontend/` and `docker/postgres/`). Every host, port
+and password in the config files is an environment variable whose default is the local value, so the
+same jar runs on a laptop with no variables and on Railway with them. The full walkthrough is
+`docs/DEPLOY-RAILWAY.md`.

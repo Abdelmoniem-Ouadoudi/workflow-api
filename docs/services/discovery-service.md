@@ -43,13 +43,22 @@ sequenceDiagram
 Nothing is written by hand. A service only needs this in its properties file:
 
 ```properties
-eureka.client.service-url.defaultZone=http://localhost:8761/eureka
-eureka.instance.prefer-ip-address=true
+eureka.client.service-url.defaultZone=${EUREKA_URL:http://localhost:8761/eureka}
+eureka.instance.prefer-ip-address=${EUREKA_PREFER_IP_ADDRESS:true}
+eureka.instance.hostname=${EUREKA_INSTANCE_HOSTNAME:${spring.cloud.client.hostname}}
 ```
+
+Each value is an environment variable with the local value as its default, so a plain local run
+needs no variables.
 
 `prefer-ip-address=true` matters on Windows. Without it a service registers under the machine
 name, and the machine name often does not resolve from another process — the gateway would then
 hold an address it cannot dial.
+
+**Deployed, it is the other way round.** On Railway a container's IP is not what other services
+dial; its private hostname (`work-service.railway.internal`) is. So the deployment sets
+`EUREKA_PREFER_IP_ADDRESS=false` and `EUREKA_INSTANCE_HOSTNAME` to that hostname, and the registry
+hands out names instead of IPs. Same code, one variable — see `docs/DEPLOY-RAILWAY.md`.
 
 ---
 

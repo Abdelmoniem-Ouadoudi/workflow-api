@@ -1295,3 +1295,44 @@ Every screen is plain React with one stylesheet of CSS variables. A component li
 matched the mockups faster, but it is a dependency the jury can ask about, and every class in
 `styles.css` can be explained line by line. Avatar colours are derived from the name with a small
 hash, so the same person has the same colour everywhere without storing anything.
+
+## Why the deployment reads its addresses from environment variables with local defaults
+
+Every host, port and password in `application.properties` became `${NAME:local-value}`. On Railway
+the variables are set and win; on a laptop none are set and the value after the colon is exactly
+what the file said before. So one file serves both, and a fresh clone still runs with no setup. Two
+files — a local one and a production profile — would be two places to keep in step, and the one not
+in use is the one that goes stale.
+
+## Why services register in Eureka by hostname on Railway but by IP locally
+
+Locally, registering by IP was chosen because a Windows machine name often does not resolve from
+another process. On Railway it is the opposite: a container's IP is not something other services are
+meant to dial, while its private hostname (`work-service.railway.internal`) always resolves. So
+`prefer-ip-address` is a variable, true by default and false on Railway, with
+`EUREKA_INSTANCE_HOSTNAME=${{RAILWAY_PRIVATE_DOMAIN}}`. Checked both ways on a Docker network: with
+the variables the registry shows the hostname, without them it shows the IP.
+
+## Why each Dockerfile has two stages
+
+The first stage has Maven and a full JDK and builds the jar; the second has only a JRE and copies
+the jar in. The image that runs carries no compiler, no build tool and no source code — smaller, and
+less to attack. The pom is copied before the source so Docker caches the dependency download: editing
+a Java file does not re-download every library. The container runs as a non-root user, and
+`-XX:MaxRAMPercentage=75` makes the JVM size its heap from the container's memory limit instead of
+the host's.
+
+## Why the frontend's API address is a build argument and not a runtime variable
+
+Vite writes `import.meta.env.VITE_API_URL` into the JavaScript when it builds. The browser that runs
+that JavaScript has no environment to read a variable from later. So the gateway's URL has to exist
+before the frontend is built, and changing it means rebuilding the frontend — which is why the deploy
+guide says to create the gateway's public domain first.
+
+## Why Postgres got its own Dockerfile but RabbitMQ did not
+
+Postgres needs the script that creates `authdb` and `vectordb`. Locally that script is mounted into
+the container; Railway has no bind mounts, so it is copied into an image instead. The same image sets
+`PGDATA` one directory below the volume, because a Railway volume arrives containing `lost+found`
+and `initdb` refuses a non-empty directory. RabbitMQ needs nothing added — its queues are declared
+by the services — so it runs from the stock image and there is no Dockerfile to maintain for it.

@@ -47,6 +47,10 @@ configuration.setAllowCredentials(true);
 **Never `"*"`.** The spec forbids combining `*` with `allowCredentials`, and the browser refuses
 the pair.
 
+The list comes from `CORS_ALLOWED_ORIGINS`, defaulting to the two local addresses. Deployed, it is
+the frontend's public `https://` URL — and it must match exactly, scheme included, or every call from
+the browser fails while the same call from `curl` succeeds.
+
 > **The bug that cost an evening.** work-service also had a CORS config. The gateway added its own
 > header and then forwarded work-service's, so `Access-Control-Allow-Origin` arrived **twice**. A
 > browser rejects a duplicate. Every call failed with "cannot reach the server" while `curl` saw a
