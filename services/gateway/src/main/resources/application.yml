@@ -82,16 +82,20 @@ spring:
                     strategy: RETAIN_FIRST
 
 server:
-  port: 8090
+  # PORT is what Railway sets; 8090 on every local run.
+  port: ${PORT:8090}
 
 eureka:
   client:
     service-url:
-      defaultZone: http://localhost:8761/eureka
+      defaultZone: ${EUREKA_URL:http://localhost:8761/eureka}
   instance:
     # Register by IP rather than by hostname: on Windows the machine name often does not resolve
     # from another process, and a caller would then hold an address it cannot dial.
-    prefer-ip-address: true
+    # On Railway it is the other way round - the private hostname is what resolves - so the
+    # deployment sets EUREKA_PREFER_IP_ADDRESS=false and EUREKA_INSTANCE_HOSTNAME.
+    prefer-ip-address: ${EUREKA_PREFER_IP_ADDRESS:true}
+    hostname: ${EUREKA_INSTANCE_HOSTNAME:${spring.cloud.client.hostname}}
 
 resilience4j:
   circuitbreaker:
@@ -120,7 +124,8 @@ resilience4j:
 app:
   # Explicit origins, never "*": the spec forbids combining it with allowCredentials.
   cors:
-    allowed-origins: http://localhost:5173,http://127.0.0.1:5173
+    # Deployed, this is the frontend's public URL, e.g. https://frontend-production.up.railway.app
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
   jwt:
     # The same secret auth-service signs with. The gateway only verifies; it issues nothing.
     secret: ${JWT_SECRET:dev-only-secret-change-me-in-production-32+}

@@ -33,8 +33,12 @@ import type {
  * The gateway, not work-service. Since M2 the browser knows exactly one address: the gateway
  * routes to auth-service or work-service by path, asks Eureka where they are, and refuses
  * anything without a valid token before it reaches either of them.
+ *
+ * Deployed, that address is the gateway's public URL, baked in at build time from VITE_API_URL.
+ * `||` rather than `??`, so a build argument that was declared but left empty still falls back to
+ * the local gateway instead of sending every request to a relative path.
  */
-const BASE_URL = 'http://localhost:8090'
+const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8090'
 
 /**
  * Every failing request throws this. Every service in the system returns one envelope — including
@@ -99,7 +103,7 @@ async function request<T>(path: string, options?: RequestOptions): Promise<T> {
       timestamp: new Date().toISOString(),
       status: 0,
       code: 'UNREACHABLE',
-      message: 'Cannot reach the server. Check that the gateway is running on port 8090.',
+      message: `Cannot reach the server. Check that the gateway is running at ${BASE_URL}.`,
       path,
     })
   }
