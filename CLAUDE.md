@@ -31,7 +31,7 @@ Note: Spring AI 1.x and Spring Cloud 2025.0.x do NOT work with Boot 4. Ignore tu
 workflow-api/
 ├── docker-compose.yml
 ├── CLAUDE.md
-├── docker/postgres-init/  ← creates the second database, authdb (runs only on an empty volume)
+├── docker/postgres/       ← init/ creates authdb and vectordb (only on an empty volume); Dockerfile for Railway
 ├── docs/
 ├── frontend/              ← React + Vite, dev server on 5173
 ├── scripts/smoke-test.sh  ← runs against the GATEWAY on 8090, not a service directly

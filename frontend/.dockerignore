@@ -1,0 +1,6 @@
+# Installed and built inside the image, for Linux. A Windows node_modules copied in would carry the
+# wrong native bindings.
+node_modules/
+dist/
+.vite/
+*.log

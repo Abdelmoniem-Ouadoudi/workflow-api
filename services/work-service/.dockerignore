@@ -1,0 +1,8 @@
+# Build output and IDE files never belong in the image context: target/ would copy a stale jar,
+# and a smaller context is a faster upload to the builder.
+target/
+.idea/
+.vscode/
+*.iml
+.mvn/wrapper/maven-wrapper.jar
+HELP.md

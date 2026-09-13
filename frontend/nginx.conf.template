@@ -1,0 +1,27 @@
+server {
+    # IPv4 only, deliberately. The browser reaches this through Railway's public edge, never over
+    # the private network, and an IPv6 listen fails outright where IPv6 is disabled - which is the
+    # default in Docker Desktop.
+    listen ${PORT};
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # The app has real URLs since M5 (/projects/3/board, /join/CODE), but only index.html exists on
+    # disk. Anything that is not a file is handed to index.html and React Router draws the screen.
+    # Without this, refreshing any page but the first answers 404.
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Vite puts a content hash in every asset name, so an asset never changes under the same name
+    # and can be cached for a year. index.html is not cached, so a new deploy is picked up at once.
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    location = /index.html {
+        add_header Cache-Control "no-cache";
+    }
+}
