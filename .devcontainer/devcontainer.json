@@ -1,0 +1,28 @@
+{
+  "name": "workflow-api-codespace",
+  "image": "mcr.microsoft.com/devcontainers/java:1-21-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "22"
+    },
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
+  },
+  "forwardPorts": [
+    5173,
+    8090,
+    8761,
+    8081,
+    8082,
+    8083,
+    5433,
+    5672,
+    15672
+  ],
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "java.configuration.updateBuildConfiguration": "interactive"
+      }
+    }
+  }
+}
